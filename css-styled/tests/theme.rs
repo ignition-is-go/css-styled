@@ -34,13 +34,13 @@ impl Default for CardStyle {
 
 impl StyledComponentBase for CardStyle {
     fn base_css() -> &'static str {
-        css!(CardStyle, r#"
-            .{SCOPE} {
+        css!(CardStyle, {
+            SCOPE {
                 background: var(--surface);
                 color: var(--primary);
                 padding: var(--card-padding);
             }
-        "#)
+        })
     }
 }
 

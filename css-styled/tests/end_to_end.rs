@@ -32,28 +32,28 @@ impl Default for SplitHandleStyle {
 
 impl StyledComponentBase for SplitHandleStyle {
     fn base_css() -> &'static str {
-        css!(SplitHandleStyle, r#"
-            .{SCOPE} {
+        css!(SplitHandleStyle, {
+            SCOPE {
                 display: flex;
                 align-items: center;
                 flex-shrink: 0;
             }
-            .{SCOPE}.{HORIZONTAL} {
+            SCOPE.HORIZONTAL {
                 cursor: col-resize;
             }
-            .{SCOPE}.{HORIZONTAL} .{BAR} {
+            SCOPE.HORIZONTAL BAR {
                 height: 100%;
             }
-            .{SCOPE}.{VERTICAL} {
+            SCOPE.VERTICAL {
                 cursor: row-resize;
             }
-            .{SCOPE}.{VERTICAL} .{BAR} {
+            SCOPE.VERTICAL BAR {
                 width: 100%;
             }
-            .{BAR} {
+            BAR {
                 pointer-events: none;
             }
-        "#)
+        })
     }
 }
 

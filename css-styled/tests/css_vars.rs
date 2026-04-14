@@ -24,15 +24,15 @@ impl Default for WidgetStyle {
 
 impl StyledComponentBase for WidgetStyle {
     fn base_css() -> &'static str {
-        css!(WidgetStyle, r#"
-            .{SCOPE} {
+        css!(WidgetStyle, {
+            SCOPE {
                 width: var(--w-size);
                 background: var(--w-color);
             }
-            .{SCOPE}.{ACTIVE} .{INNER} {
+            SCOPE.ACTIVE INNER {
                 font-weight: bold;
             }
-        "#)
+        })
     }
 }
 

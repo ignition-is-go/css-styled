@@ -20,39 +20,39 @@ impl Default for AdvStyle {
 
 impl StyledComponentBase for AdvStyle {
     fn base_css() -> &'static str {
-        css!(AdvStyle, r#"
-            .{SCOPE} {
+        css!(AdvStyle, {
+            SCOPE {
                 display: flex;
             }
-            .{SCOPE}:hover .{PANEL} {
+            SCOPE:hover PANEL {
                 width: var(--adv-width);
                 padding-right: 8px;
             }
-            .{LABEL} {
+            LABEL {
                 display: none;
             }
-            .{SCOPE}:hover .{LABEL} {
+            SCOPE:hover LABEL {
                 display: inline;
             }
-            .{PANEL} {
+            PANEL {
                 overflow-y: auto;
                 overflow-x: hidden;
             }
-        "#)
+        })
     }
 }
 
 #[test]
 fn hover_selector() {
     let css = AdvStyle::base_css();
-    assert!(css.contains(".adv:hover .adv-panel"), "got: {css}");
+    assert!(css.contains(".adv:hover .adv-panel {"), "got: {css}");
     assert!(css.contains("var(--adv-width)"), "got: {css}");
 }
 
 #[test]
 fn hover_label() {
     let css = AdvStyle::base_css();
-    assert!(css.contains(".adv:hover .adv-label"), "got: {css}");
+    assert!(css.contains(".adv:hover .adv-label {"), "got: {css}");
     assert!(css.contains("display: inline"), "got: {css}");
 }
 
@@ -82,11 +82,11 @@ impl Default for TransitionStyle {
 
 impl StyledComponentBase for TransitionStyle {
     fn base_css() -> &'static str {
-        css!(TransitionStyle, r#"
-            .{PANEL} {
+        css!(TransitionStyle, {
+            PANEL {
                 transition: width 0.15s ease, padding-right 0.15s ease;
             }
-        "#)
+        })
     }
 }
 
