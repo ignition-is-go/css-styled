@@ -19,15 +19,16 @@ mod generated {
     include!(concat!(env!("OUT_DIR"), "/generated.rs"));
 }
 
+mod validate;
+
 /// Look up a CSS property by name.
 pub fn property(name: &str) -> Option<&'static PropertySpec> {
     generated::PROPERTIES.iter().find(|p| p.name == name)
 }
 
 /// Validate a CSS value for a given property.
-/// (Stub — full implementation is Task 3)
-pub fn validate_value(_property: &str, _value: &str) -> ValidationResult {
-    ValidationResult::Valid
+pub fn validate_value(property: &str, value: &str) -> ValidationResult {
+    validate::validate_value(property, value)
 }
 
 /// Check if a name is a known CSS pseudo-class (e.g. ":hover").
