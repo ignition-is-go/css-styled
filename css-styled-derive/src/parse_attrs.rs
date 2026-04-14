@@ -1,0 +1,146 @@
+use proc_macro2::Span;
+use syn::{DeriveInput, Error, Ident, LitStr, Result, Field};
+
+/// Parsed struct-level configuration from `#[component(...)]` attributes.
+#[derive(Debug, Default)]
+pub struct ComponentConfig {
+    pub scope: Option<LitStr>,
+    /// Named child-class aliases: (alias_ident, class_string_literal)
+    pub classes: Vec<(Ident, LitStr)>,
+    /// Modifier variant names
+    pub modifiers: Vec<Ident>,
+}
+
+/// Parsed field-level configuration from `#[prop(...)]` attributes.
+#[derive(Debug)]
+pub enum PropConfig {
+    /// The field is skipped from CSS generation.
+    Skip,
+    /// The field maps to a CSS property.
+    Mapped {
+        css: LitStr,
+        on: Option<Ident>,
+        pseudo: Option<LitStr>,
+    },
+}
+
+/// A fully-parsed field with its config.
+#[derive(Debug)]
+pub struct ParsedField {
+    pub ident: Ident,
+    pub config: PropConfig,
+}
+
+/// Parse all `#[component(...)]` attributes from the struct.
+pub fn parse_component_config(input: &DeriveInput) -> Result<ComponentConfig> {
+    let mut config = ComponentConfig::default();
+
+    for attr in &input.attrs {
+        if !attr.path().is_ident("component") {
+            continue;
+        }
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("scope") {
+                let value = meta.value()?;
+                let lit: LitStr = value.parse()?;
+                config.scope = Some(lit);
+                Ok(())
+            } else if meta.path.is_ident("class") {
+                let content;
+                syn::parenthesized!(content in meta.input);
+                // Parse comma-separated: alias = "class-name"
+                loop {
+                    if content.is_empty() {
+                        break;
+                    }
+                    let alias: Ident = content.parse()?;
+                    let _eq: syn::Token![=] = content.parse()?;
+                    let class_str: LitStr = content.parse()?;
+                    config.classes.push((alias, class_str));
+                    if content.is_empty() {
+                        break;
+                    }
+                    let _comma: syn::Token![,] = content.parse()?;
+                }
+                Ok(())
+            } else if meta.path.is_ident("modifier") {
+                let content;
+                syn::parenthesized!(content in meta.input);
+                loop {
+                    if content.is_empty() {
+                        break;
+                    }
+                    let name: Ident = content.parse()?;
+                    config.modifiers.push(name);
+                    if content.is_empty() {
+                        break;
+                    }
+                    let _comma: syn::Token![,] = content.parse()?;
+                }
+                Ok(())
+            } else {
+                Err(meta.error("unknown component attribute"))
+            }
+        })?;
+    }
+
+    if config.scope.is_none() {
+        return Err(Error::new(
+            Span::call_site(),
+            "missing required `#[component(scope = \"...\")]` attribute",
+        ));
+    }
+
+    Ok(config)
+}
+
+/// Parse the `#[prop(...)]` attribute from a single field.
+pub fn parse_prop_config(field: &Field) -> Result<Option<PropConfig>> {
+    for attr in &field.attrs {
+        if !attr.path().is_ident("prop") {
+            continue;
+        }
+
+        // Check for #[prop(skip)]
+        let mut is_skip = false;
+        let mut css: Option<LitStr> = None;
+        let mut on: Option<Ident> = None;
+        let mut pseudo: Option<LitStr> = None;
+
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("skip") {
+                is_skip = true;
+                Ok(())
+            } else if meta.path.is_ident("css") {
+                let value = meta.value()?;
+                css = Some(value.parse()?);
+                Ok(())
+            } else if meta.path.is_ident("on") {
+                let value = meta.value()?;
+                on = Some(value.parse()?);
+                Ok(())
+            } else if meta.path.is_ident("pseudo") {
+                let value = meta.value()?;
+                pseudo = Some(value.parse()?);
+                Ok(())
+            } else {
+                Err(meta.error("unknown prop attribute; expected `css`, `on`, `pseudo`, or `skip`"))
+            }
+        })?;
+
+        if is_skip {
+            return Ok(Some(PropConfig::Skip));
+        }
+
+        if css.is_none() {
+            return Err(Error::new_spanned(
+                attr,
+                "`#[prop(...)]` requires `css = \"property-name\"`",
+            ));
+        }
+
+        return Ok(Some(PropConfig::Mapped { css: css.unwrap(), on, pseudo }));
+    }
+
+    Ok(None)
+}
