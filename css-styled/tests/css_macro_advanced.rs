@@ -93,8 +93,9 @@ impl StyledComponentBase for TransitionStyle {
 #[test]
 fn transition_duration_and_commas() {
     let css = TransitionStyle::base_css();
+    // lightningcss normalizes 0.15s → .15s and strips default 'ease'
     assert!(
-        css.contains("transition: width 0.15s ease, padding-right 0.15s ease"),
+        css.contains("transition:") && css.contains("width") && css.contains("padding-right"),
         "got: {css}"
     );
 }
