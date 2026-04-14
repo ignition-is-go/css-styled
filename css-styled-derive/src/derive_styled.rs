@@ -55,6 +55,16 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
     // Compile-time validation
     validate_fields(&parsed_fields, &config)?;
 
+    // Register vars in the proc-macro-internal registry so css! can validate them
+    let component_var_names: Vec<String> = parsed_fields.iter().filter_map(|f| {
+        if let PropConfig::Variable { var } = &f.config { Some(var.value()) } else { None }
+    }).collect();
+    crate::register_vars(&struct_name.to_string(), component_var_names);
+    if let Some(theme_path) = &config.theme {
+        let theme_name = quote!(#theme_path).to_string().replace(' ', "");
+        crate::register_theme_vars(&struct_name.to_string(), &theme_name);
+    }
+
     // Generate pieces
     let scope_const = gen_scope_const(&scope_str);
     let class_consts = gen_class_consts(&config);

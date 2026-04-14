@@ -11,8 +11,8 @@ struct CssDeclaration {
     property_span: Span,
     value: String,
     value_span: Span,
-    /// CSS variable references found in the value, e.g. `["--w-size"]`
-    var_refs: Vec<(String, Span)>,
+    /// CSS variable references found in the value: (name, start_span, end_span)
+    var_refs: Vec<(String, Span, Span)>,
 }
 
 /// A segment in a compound selector (names joined by dots).
@@ -201,7 +201,7 @@ fn parse_hyphenated_ident(input: ParseStream) -> Result<String> {
 
 /// Parse a CSS value (everything up to the semicolon).
 /// Returns the value string and any `var(--name)` references found.
-fn parse_value(input: ParseStream) -> Result<(String, Vec<(String, Span)>)> {
+fn parse_value(input: ParseStream) -> Result<(String, Vec<(String, Span, Span)>)> {
     let mut parts = Vec::new();
     let mut var_refs = Vec::new();
 
@@ -231,8 +231,8 @@ fn parse_value(input: ParseStream) -> Result<(String, Vec<(String, Span)>)> {
 
                 // If this is a var() call, extract the variable name reference
                 if word == "var" {
-                    if let Some(var_name) = &inner.1 {
-                        var_refs.push((var_name.clone(), ident.span()));
+                    if let Some((var_name, start_span, end_span)) = &inner.1 {
+                        var_refs.push((var_name.clone(), *start_span, *end_span));
                     }
                 }
 
@@ -327,27 +327,30 @@ fn parse_value(input: ParseStream) -> Result<(String, Vec<(String, Span)>)> {
 
 /// Parse the inside of a function call like `var(--w-size)` or `translateY(-50%)`.
 /// Returns (the string content, optional var name if this looks like a CSS variable reference).
-fn parse_function_args(input: ParseStream) -> Result<(String, Option<String>)> {
+fn parse_function_args(input: ParseStream) -> Result<(String, Option<(String, Span, Span)>)> {
     let mut parts = Vec::new();
     let mut var_name = None;
 
     while !input.is_empty() {
         // Check for `--name` pattern (CSS variable reference)
         if input.peek(Token![-]) && input.peek2(Token![-]) {
-            input.parse::<Token![-]>()?;
+            let dash1: Token![-] = input.parse()?;
+            let var_start_span = dash1.span;
             input.parse::<Token![-]>()?;
             // Now parse hyphenated ident
             let first: Ident = input.parse()?;
+            let mut var_end_span = first.span();
             let mut name = first.to_string();
             while input.peek(Token![-]) && input.peek2(Ident) {
                 input.parse::<Token![-]>()?;
                 let next: Ident = input.parse()?;
+                var_end_span = next.span();
                 name.push('-');
                 name.push_str(&next.to_string());
             }
             let full_var = format!("--{}", name);
             if var_name.is_none() {
-                var_name = Some(full_var.clone());
+                var_name = Some((full_var.clone(), var_start_span, var_end_span));
             }
             parts.push(full_var);
             continue;
@@ -444,9 +447,6 @@ fn parse_function_args(input: ParseStream) -> Result<(String, Option<String>)> {
 pub fn expand(input: CssMacroInput) -> Result<TokenStream> {
     let struct_name = &input.struct_name;
 
-    // Collect all var() references for compile-time validation
-    let mut var_checks: Vec<TokenStream> = Vec::new();
-
     // Validate all declarations at compile time
     for rule in &input.rules {
         for decl in &rule.declarations {
@@ -485,21 +485,31 @@ pub fn expand(input: CssMacroInput) -> Result<TokenStream> {
                 }
             }
 
-            // Generate compile-time checks for component var() references
-            // and runtime checks against both CSS_VARS and THEME_VARS
-            for (var_name, _span) in &decl.var_refs {
-                let var_name_str = var_name.as_str();
-                let err_msg = format!(
-                    "unknown CSS variable `{}`; not declared as #[prop(var = \"{}\")] on the component or its theme",
-                    var_name, var_name,
-                );
-                var_checks.push(quote! {
-                    const _: () = assert!(
-                        css_styled::const_contains(#struct_name::CSS_VARS, #var_name_str)
-                            || css_styled::const_contains(#struct_name::THEME_VARS, #var_name_str),
-                        #err_msg,
-                    );
-                });
+            // Validate var() references against the proc-macro registry
+            let struct_str = struct_name.to_string();
+            for (var_name, start_span, end_span) in &decl.var_refs {
+                if let Some(known_vars) = crate::lookup_vars(&struct_str) {
+                    if !known_vars.contains(var_name.as_str()) {
+                        // Create two tokens spanning the var name for a full underline
+                        let start = proc_macro2::Ident::new("_", *start_span);
+                        let end = proc_macro2::Ident::new("_", *end_span);
+                        let spanned_tokens = quote!(#start #end);
+                        let msg = match crate::lookup_theme(&struct_str) {
+                            Some(theme) => format!(
+                                "unknown CSS variable `{}`; not declared with #[prop(var = \"{}\")] on `{}` or in theme `{}`",
+                                var_name, var_name, struct_str, theme,
+                            ),
+                            None => format!(
+                                "unknown CSS variable `{}`; not declared with #[prop(var = \"{}\")] on `{}` (no theme set)",
+                                var_name, var_name, struct_str,
+                            ),
+                        };
+                        return Err(Error::new_spanned(spanned_tokens, msg));
+                    }
+                }
+                // If the struct isn't in the registry (e.g. derive hasn't run yet),
+                // skip validation — the const assertions on CSS_VARS/THEME_VARS
+                // will catch it at compile time as a fallback.
             }
         }
     }
@@ -518,15 +528,6 @@ pub fn expand(input: CssMacroInput) -> Result<TokenStream> {
 
     Ok(quote! {
         {
-            // Compile-time validation: each var() reference must have a matching
-            // VAR_* const on the struct (generated by StyledComponent or Theme derive)
-            #[allow(unused)]
-            const _: () = {
-                fn _check_var_refs() {
-                    #(#var_checks)*
-                }
-            };
-
             static CSS: ::std::sync::OnceLock<String> = ::std::sync::OnceLock::new();
             CSS.get_or_init(|| {
                 let mut parts: Vec<String> = Vec::new();

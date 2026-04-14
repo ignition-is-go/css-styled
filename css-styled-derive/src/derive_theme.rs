@@ -76,6 +76,12 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         });
     }
 
+    // Register theme vars in the proc-macro-internal registry
+    crate::register_vars(
+        &struct_name.to_string(),
+        theme_fields.iter().map(|tf| tf.var_name.clone()),
+    );
+
     // Check for duplicate var names
     let mut seen = Vec::new();
     for tf in &theme_fields {
