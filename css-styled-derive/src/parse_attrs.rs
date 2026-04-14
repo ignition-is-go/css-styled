@@ -11,6 +11,8 @@ pub struct ComponentConfig {
     pub modifiers: Vec<Ident>,
     /// If true, user will provide their own StyledComponentBase impl
     pub custom_base_css: bool,
+    /// Optional theme type path, e.g. `AppTheme`
+    pub theme: Option<syn::Path>,
 }
 
 /// Parsed field-level configuration from `#[prop(...)]` attributes.
@@ -86,6 +88,11 @@ pub fn parse_component_config(input: &DeriveInput) -> Result<ComponentConfig> {
                     }
                     let _comma: syn::Token![,] = content.parse()?;
                 }
+                Ok(())
+            } else if meta.path.is_ident("theme") {
+                let value = meta.value()?;
+                let path: syn::Path = value.parse()?;
+                config.theme = Some(path);
                 Ok(())
             } else {
                 Err(meta.error("unknown component attribute"))

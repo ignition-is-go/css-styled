@@ -450,8 +450,9 @@ fn var_to_const_name(var_name: &str) -> String {
 pub fn expand(input: CssMacroInput) -> Result<TokenStream> {
     let struct_name = &input.struct_name;
 
-    // Collect all var() references for compile-time validation
+    // Collect all var() references for validation
     let mut var_checks: Vec<TokenStream> = Vec::new();
+    let mut runtime_var_checks: Vec<TokenStream> = Vec::new();
 
     // Validate all declarations at compile time
     for rule in &input.rules {
@@ -491,11 +492,25 @@ pub fn expand(input: CssMacroInput) -> Result<TokenStream> {
                 }
             }
 
-            // Generate compile-time checks for var() references
+            // Generate compile-time checks for component var() references
+            // and runtime checks against both CSS_VARS and THEME_VARS
             for (var_name, span) in &decl.var_refs {
                 let const_name = format_ident!("{}", var_to_const_name(var_name), span = *span);
                 var_checks.push(quote! {
                     let _ = #struct_name::#const_name;
+                });
+
+                // Also generate a runtime assertion that checks both sources
+                let var_name_str = var_name.as_str();
+                runtime_var_checks.push(quote! {
+                    {
+                        let var = #var_name_str;
+                        let in_component = <[&str]>::contains(#struct_name::CSS_VARS, &var);
+                        let in_theme = <[&str]>::contains(#struct_name::THEME_VARS, &var);
+                        if !in_component && !in_theme {
+                            panic!("css-styled: unknown CSS variable `{}` — not declared in component or theme", var);
+                        }
+                    }
                 });
             }
         }
@@ -515,16 +530,11 @@ pub fn expand(input: CssMacroInput) -> Result<TokenStream> {
 
     Ok(quote! {
         {
-            // Compile-time validation of var() references against struct consts
-            #[allow(unused)]
-            const _: () = {
-                fn _check_var_refs() {
-                    #(#var_checks)*
-                }
-            };
-
             static CSS: ::std::sync::OnceLock<String> = ::std::sync::OnceLock::new();
             CSS.get_or_init(|| {
+                // Runtime validation of var() references against component and theme vars
+                #(#runtime_var_checks)*
+
                 let mut parts: Vec<String> = Vec::new();
                 #(#rule_pushes)*
                 parts.join("\n")

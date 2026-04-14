@@ -59,6 +59,8 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
     let scope_const = gen_scope_const(&scope_str);
     let class_consts = gen_class_consts(&config);
     let var_consts = gen_var_consts(&parsed_fields);
+    let theme_vars_const = gen_theme_vars_const(&config);
+    let css_vars_const = gen_css_vars_const(&parsed_fields);
     let base_name = {
         let s = struct_name.to_string();
         if s.ends_with("Style") {
@@ -78,6 +80,8 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
             #class_consts
             #modifier_consts
             #var_consts
+            #css_vars_const
+            #theme_vars_const
             #class_method
         }
 
@@ -230,6 +234,34 @@ fn gen_var_consts(fields: &[ParsedField]) -> TokenStream {
         })
         .collect();
     quote! { #(#consts)* }
+}
+
+fn gen_css_vars_const(fields: &[ParsedField]) -> TokenStream {
+    let var_names: Vec<String> = fields
+        .iter()
+        .filter_map(|f| {
+            if let PropConfig::Variable { var } = &f.config {
+                Some(var.value())
+            } else {
+                None
+            }
+        })
+        .collect();
+    quote! {
+        pub const CSS_VARS: &'static [&'static str] = &[#(#var_names),*];
+    }
+}
+
+fn gen_theme_vars_const(config: &ComponentConfig) -> TokenStream {
+    if let Some(theme_path) = &config.theme {
+        quote! {
+            pub const THEME_VARS: &'static [&'static str] = #theme_path::ALL_VARS;
+        }
+    } else {
+        quote! {
+            pub const THEME_VARS: &'static [&'static str] = &[];
+        }
+    }
 }
 
 fn gen_modifier_consts(config: &ComponentConfig) -> TokenStream {

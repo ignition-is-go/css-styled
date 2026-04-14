@@ -3,6 +3,7 @@ use proc_macro::TokenStream;
 mod parse_attrs;
 mod fuzzy;
 mod derive_styled;
+mod derive_theme;
 mod css_macro;
 
 /// Derive macro for generating typed CSS from a theme struct.
@@ -10,6 +11,16 @@ mod css_macro;
 pub fn derive_styled_component(input: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(input as syn::DeriveInput);
     match derive_styled::derive(input) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Derive macro for generating a global CSS theme with custom properties.
+#[proc_macro_derive(Theme, attributes(var))]
+pub fn derive_theme(input: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(input as syn::DeriveInput);
+    match derive_theme::derive(input) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }
