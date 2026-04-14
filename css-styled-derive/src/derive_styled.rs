@@ -84,6 +84,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
     let class_method = gen_class_method(struct_name, &base_name, &config, &scope_str);
     let into_css_impl = gen_into_css(struct_name, &parsed_fields, &config, &scope_str);
     let default_impl = gen_default_impl(struct_name, &parsed_fields, &config)?;
+    let overrides_struct = gen_overrides(struct_name, &base_name, &parsed_fields);
 
     Ok(quote! {
         impl #struct_name {
@@ -101,6 +102,8 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         #into_css_impl
 
         #default_impl
+
+        #overrides_struct
     })
 }
 
@@ -489,6 +492,101 @@ fn to_pascal_case(s: &str) -> String {
         }
     }
     result
+}
+
+/// Generate an overrides builder struct for per-instance CSS variable overrides.
+///
+/// Produces `{BaseName}Overrides` with a builder API:
+/// ```ignore
+/// ActivityBarStyle::vars(|v| v.icon_opacity("1").icon_color("red"))
+/// // → "--ab-icon-opacity: 1; --ab-icon-color: red"
+/// ```
+fn gen_overrides(
+    struct_name: &syn::Ident,
+    base_name: &str,
+    fields: &[ParsedField],
+) -> TokenStream {
+    // Collect variable fields only
+    let var_fields: Vec<(&syn::Ident, String)> = fields
+        .iter()
+        .filter_map(|f| {
+            if let PropConfig::Variable { var, .. } = &f.config {
+                Some((&f.ident, var.value()))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if var_fields.is_empty() {
+        return TokenStream::new();
+    }
+
+    let overrides_name = format_ident!("{}Overrides", base_name);
+
+    // Struct fields: Option<String> per variable
+    let struct_fields: Vec<TokenStream> = var_fields.iter().map(|(ident, _)| {
+        quote! { #ident: Option<String> }
+    }).collect();
+
+    // Builder setter methods
+    let setter_methods: Vec<TokenStream> = var_fields.iter().map(|(ident, _)| {
+        quote! {
+            pub fn #ident(mut self, value: impl Into<String>) -> Self {
+                self.#ident = Some(value.into());
+                self
+            }
+        }
+    }).collect();
+
+    // Build method — produces the inline style string
+    let build_parts: Vec<TokenStream> = var_fields.iter().map(|(ident, var_name)| {
+        quote! {
+            if let Some(ref val) = self.#ident {
+                parts.push(format!("{}: {}", #var_name, val));
+            }
+        }
+    }).collect();
+
+    // Default field initializers (all None)
+    let default_fields: Vec<TokenStream> = var_fields.iter().map(|(ident, _)| {
+        quote! { #ident: None }
+    }).collect();
+
+    quote! {
+        /// Per-instance CSS variable overrides. Use `build()` to get an inline
+        /// style string, or pass to an element's `style` attribute.
+        pub struct #overrides_name {
+            #(#struct_fields,)*
+        }
+
+        impl #overrides_name {
+            pub fn new() -> Self {
+                Self { #(#default_fields,)* }
+            }
+
+            #(#setter_methods)*
+
+            /// Produce the inline CSS variable declarations.
+            pub fn build(self) -> String {
+                let mut parts: Vec<String> = Vec::new();
+                #(#build_parts)*
+                parts.join("; ")
+            }
+        }
+
+        impl #struct_name {
+            /// Create a per-instance CSS variable override builder.
+            pub fn overrides() -> #overrides_name {
+                #overrides_name::new()
+            }
+
+            /// Convenience: build overrides via a closure.
+            pub fn vars(f: impl FnOnce(#overrides_name) -> #overrides_name) -> String {
+                f(#overrides_name::new()).build()
+            }
+        }
+    }
 }
 
 /// Generate a `Default` impl if all fields have a `default` attribute.

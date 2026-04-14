@@ -67,3 +67,32 @@ fn var_consts_exist() {
     assert_eq!(WidgetStyle::VAR_W_SIZE, "--w-size");
     assert_eq!(WidgetStyle::VAR_W_COLOR, "--w-color");
 }
+
+#[test]
+fn overrides_builder() {
+    let style = WidgetStyle::overrides()
+        .size("200px".to_string())
+        .build();
+    assert_eq!(style, "--w-size: 200px");
+}
+
+#[test]
+fn overrides_multiple() {
+    let style = WidgetStyle::overrides()
+        .size("200px")
+        .color("red")
+        .build();
+    assert_eq!(style, "--w-size: 200px; --w-color: red");
+}
+
+#[test]
+fn overrides_empty() {
+    let style = WidgetStyle::overrides().build();
+    assert_eq!(style, "");
+}
+
+#[test]
+fn vars_closure() {
+    let style = WidgetStyle::vars(|v| v.size("50px").color("green"));
+    assert_eq!(style, "--w-size: 50px; --w-color: green");
+}
