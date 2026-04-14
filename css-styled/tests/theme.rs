@@ -78,3 +78,46 @@ fn theme_vars_forwarded() {
     assert!(CardStyle::THEME_VARS.contains(&"--primary"));
     assert!(CardStyle::THEME_VARS.contains(&"--surface"));
 }
+
+// --- Tests for `default = theme.field_name` and `default = "literal"` ---
+
+#[derive(StyledComponent, Clone)]
+#[component(scope = "panel")]
+#[component(theme = AppTheme)]
+struct PanelStyle {
+    #[prop(css = "background", default = theme.surface)]
+    pub background: String,
+
+    #[prop(css = "color", default = theme.primary)]
+    pub color: String,
+
+    #[prop(css = "border-radius", default = "4px")]
+    pub radius: String,
+
+    #[prop(var = "--panel-gap", default = "8px")]
+    pub gap: String,
+}
+
+#[test]
+fn theme_default_generates_var_ref() {
+    let style = PanelStyle::default();
+    assert_eq!(style.background, "var(--surface)");
+    assert_eq!(style.color, "var(--primary)");
+}
+
+#[test]
+fn literal_default_uses_value() {
+    let style = PanelStyle::default();
+    assert_eq!(style.radius, "4px");
+    assert_eq!(style.gap, "8px");
+}
+
+#[test]
+fn theme_default_can_be_overridden() {
+    let style = PanelStyle {
+        background: "red".into(),
+        ..Default::default()
+    };
+    assert_eq!(style.background, "red");
+    assert_eq!(style.color, "var(--primary)");
+}

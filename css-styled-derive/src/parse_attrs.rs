@@ -25,11 +25,24 @@ pub enum PropConfig {
         css: LitStr,
         on: Option<Ident>,
         pseudo: Option<LitStr>,
+        /// Default value source
+        default: Option<PropDefault>,
     },
     /// The field declares a CSS custom property (variable).
     Variable {
         var: LitStr,
+        /// Default value source
+        default: Option<PropDefault>,
     },
+}
+
+/// A default value for a prop field.
+#[derive(Debug, Clone)]
+pub enum PropDefault {
+    /// `default = theme.field_name` — resolves to `var(--theme-var-name)`
+    ThemeVar(Ident),
+    /// `default = "literal"` — a literal default value
+    Literal(LitStr),
 }
 
 /// A fully-parsed field with its config.
@@ -123,6 +136,7 @@ pub fn parse_prop_config(field: &Field) -> Result<Option<PropConfig>> {
         let mut on: Option<Ident> = None;
         let mut pseudo: Option<LitStr> = None;
         let mut var: Option<LitStr> = None;
+        let mut prop_default: Option<PropDefault> = None;
 
         attr.parse_nested_meta(|meta| {
             if meta.path.is_ident("skip") {
@@ -144,8 +158,24 @@ pub fn parse_prop_config(field: &Field) -> Result<Option<PropConfig>> {
                 let value = meta.value()?;
                 var = Some(value.parse()?);
                 Ok(())
+            } else if meta.path.is_ident("default") {
+                // Parse `default = theme.field_name` or `default = "literal"`
+                let value = meta.value()?;
+                if value.peek(LitStr) {
+                    let lit: LitStr = value.parse()?;
+                    prop_default = Some(PropDefault::Literal(lit));
+                } else {
+                    let path: Ident = value.parse()?;
+                    if path != "theme" {
+                        return Err(Error::new_spanned(&path, "expected `theme` or a string literal; use `default = theme.field_name` or `default = \"value\"`"));
+                    }
+                    let _dot: syn::Token![.] = value.parse()?;
+                    let field_name: Ident = value.parse()?;
+                    prop_default = Some(PropDefault::ThemeVar(field_name));
+                }
+                Ok(())
             } else {
-                Err(meta.error("unknown prop attribute; expected `css`, `on`, `pseudo`, `var`, or `skip`"))
+                Err(meta.error("unknown prop attribute; expected `css`, `on`, `pseudo`, `var`, `default`, or `skip`"))
             }
         })?;
 
@@ -161,7 +191,7 @@ pub fn parse_prop_config(field: &Field) -> Result<Option<PropConfig>> {
                     "CSS custom property name must start with `--`",
                 ));
             }
-            return Ok(Some(PropConfig::Variable { var: var_lit }));
+            return Ok(Some(PropConfig::Variable { var: var_lit, default: prop_default }));
         }
 
         if css.is_none() {
@@ -171,7 +201,7 @@ pub fn parse_prop_config(field: &Field) -> Result<Option<PropConfig>> {
             ));
         }
 
-        return Ok(Some(PropConfig::Mapped { css: css.unwrap(), on, pseudo }));
+        return Ok(Some(PropConfig::Mapped { css: css.unwrap(), on, pseudo, default: prop_default }));
     }
 
     Ok(None)

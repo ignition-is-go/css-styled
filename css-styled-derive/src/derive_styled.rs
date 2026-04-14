@@ -57,7 +57,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
 
     // Register vars in the proc-macro-internal registry so css! can validate them
     let component_var_names: Vec<String> = parsed_fields.iter().filter_map(|f| {
-        if let PropConfig::Variable { var } = &f.config { Some(var.value()) } else { None }
+        if let PropConfig::Variable { var, .. } = &f.config { Some(var.value()) } else { None }
     }).collect();
     crate::register_vars(&struct_name.to_string(), component_var_names);
     if let Some(theme_path) = &config.theme {
@@ -83,6 +83,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
     let modifier_enum = gen_modifier_enum(struct_name, &base_name, &config);
     let class_method = gen_class_method(struct_name, &base_name, &config, &scope_str);
     let into_css_impl = gen_into_css(struct_name, &parsed_fields, &config, &scope_str);
+    let default_impl = gen_default_impl(struct_name, &parsed_fields, &config);
 
     Ok(quote! {
         impl #struct_name {
@@ -98,6 +99,8 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         #modifier_enum
 
         #into_css_impl
+
+        #default_impl
     })
 }
 
@@ -108,7 +111,7 @@ fn validate_fields(fields: &[ParsedField], config: &ComponentConfig) -> Result<(
 
     for field in fields {
         // Check for Variable fields
-        if let PropConfig::Variable { var } = &field.config {
+        if let PropConfig::Variable { var, .. } = &field.config {
             let var_name = var.value();
             if seen_vars.contains(&var_name) {
                 return Err(Error::new_spanned(
@@ -120,7 +123,7 @@ fn validate_fields(fields: &[ParsedField], config: &ComponentConfig) -> Result<(
             continue;
         }
 
-        let PropConfig::Mapped { css, on, pseudo } = &field.config else {
+        let PropConfig::Mapped { css, on, pseudo, .. } = &field.config else {
             continue;
         };
 
@@ -232,7 +235,7 @@ fn gen_var_consts(fields: &[ParsedField]) -> TokenStream {
     let consts: Vec<TokenStream> = fields
         .iter()
         .filter_map(|f| {
-            if let PropConfig::Variable { var } = &f.config {
+            if let PropConfig::Variable { var, .. } = &f.config {
                 let var_name = var.value();
                 let const_name = format_ident!("{}", var_to_const_name(&var_name));
                 Some(quote! {
@@ -250,7 +253,7 @@ fn gen_css_vars_const(fields: &[ParsedField]) -> TokenStream {
     let var_names: Vec<String> = fields
         .iter()
         .filter_map(|f| {
-            if let PropConfig::Variable { var } = &f.config {
+            if let PropConfig::Variable { var, .. } = &f.config {
                 Some(var.value())
             } else {
                 None
@@ -370,7 +373,7 @@ fn gen_into_css(
         let var_names: Vec<String> = var_fields
             .iter()
             .map(|f| {
-                if let PropConfig::Variable { var } = &f.config {
+                if let PropConfig::Variable { var, .. } = &f.config {
                     var.value()
                 } else {
                     unreachable!()
@@ -391,7 +394,7 @@ fn gen_into_css(
     }
 
     for field in fields {
-        let PropConfig::Mapped { css, on, pseudo } = &field.config else {
+        let PropConfig::Mapped { css, on, pseudo, .. } = &field.config else {
             continue;
         };
 
@@ -486,4 +489,68 @@ fn to_pascal_case(s: &str) -> String {
         }
     }
     result
+}
+
+/// Generate a `Default` impl if all fields have a `default` attribute.
+/// Fields with `default = theme.x` resolve to `format!("var({})", ThemePath::VAR_X)`.
+/// Fields with `default = "literal"` use the literal value.
+/// If any field is missing a default, returns empty (user writes their own Default).
+fn gen_default_impl(
+    struct_name: &syn::Ident,
+    fields: &[ParsedField],
+    config: &ComponentConfig,
+) -> TokenStream {
+    use crate::parse_attrs::PropDefault;
+
+    // Check if all non-skip fields have defaults
+    let mut field_defaults: Vec<(&syn::Ident, TokenStream)> = Vec::new();
+
+    for field in fields {
+        let default_opt = match &field.config {
+            PropConfig::Skip => continue,
+            PropConfig::Mapped { default, .. } => default,
+            PropConfig::Variable { default, .. } => default,
+        };
+
+        let Some(default) = default_opt else {
+            // A field without a default — can't generate Default impl
+            return TokenStream::new();
+        };
+
+        let value_expr = match default {
+            PropDefault::ThemeVar(theme_field) => {
+                let Some(theme_path) = &config.theme else {
+                    // theme_default used but no theme set — this is caught in validation
+                    return TokenStream::new();
+                };
+                // Convert theme field name to the VAR_ const name
+                let const_name = format_ident!(
+                    "VAR_{}",
+                    theme_field.to_string().to_uppercase()
+                );
+                quote! {
+                    format!("var({})", #theme_path::#const_name).into()
+                }
+            }
+            PropDefault::Literal(lit) => {
+                quote! { #lit.into() }
+            }
+        };
+
+        field_defaults.push((&field.ident, value_expr));
+    }
+
+    let field_inits: Vec<TokenStream> = field_defaults.iter().map(|(ident, expr)| {
+        quote! { #ident: #expr }
+    }).collect();
+
+    quote! {
+        impl Default for #struct_name {
+            fn default() -> Self {
+                Self {
+                    #(#field_inits,)*
+                }
+            }
+        }
+    }
 }
