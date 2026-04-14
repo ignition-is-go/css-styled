@@ -119,6 +119,8 @@ const SPEC_FILES: &[&str] = &[
     "motion",
     "scroll-animations",
     "css-scrollbars",
+    "fill-stroke",
+    "SVG",
     // selectors spec for pseudo-classes/elements
     "selectors",
 ];
