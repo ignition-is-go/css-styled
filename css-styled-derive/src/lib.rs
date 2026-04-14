@@ -6,6 +6,7 @@ mod parse_attrs;
 mod fuzzy;
 mod derive_styled;
 mod derive_theme;
+mod derive_css_vars;
 mod css_macro;
 
 /// Registry of CSS variable names declared by each struct.
@@ -90,6 +91,17 @@ pub fn derive_styled_component(input: TokenStream) -> TokenStream {
 pub fn derive_theme(input: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(input as syn::DeriveInput);
     match derive_theme::derive(input) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Lightweight derive for library-internal CSS variables.
+/// Generates VAR_* consts, CSS_VARS array, and a typed vars() builder.
+#[proc_macro_derive(CssVars, attributes(var))]
+pub fn derive_css_vars(input: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(input as syn::DeriveInput);
+    match derive_css_vars::derive(input) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }

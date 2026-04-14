@@ -1,4 +1,4 @@
-pub use css_styled_derive::{StyledComponent, Theme, css};
+pub use css_styled_derive::{StyledComponent, Theme, CssVars, css};
 pub use css_spec_data;
 
 /// Trait for types that can produce scoped CSS.

@@ -13,6 +13,8 @@ pub struct ComponentConfig {
     pub custom_base_css: bool,
     /// Optional theme type path, e.g. `AppTheme`
     pub theme: Option<syn::Path>,
+    /// Optional internals type path for library-internal CSS variables
+    pub internals: Vec<syn::Path>,
 }
 
 /// Parsed field-level configuration from `#[prop(...)]` attributes.
@@ -106,6 +108,21 @@ pub fn parse_component_config(input: &DeriveInput) -> Result<ComponentConfig> {
                 let value = meta.value()?;
                 let path: syn::Path = value.parse()?;
                 config.theme = Some(path);
+                Ok(())
+            } else if meta.path.is_ident("internals") {
+                let content;
+                syn::parenthesized!(content in meta.input);
+                loop {
+                    if content.is_empty() {
+                        break;
+                    }
+                    let path: syn::Path = content.parse()?;
+                    config.internals.push(path);
+                    if content.is_empty() {
+                        break;
+                    }
+                    let _comma: syn::Token![,] = content.parse()?;
+                }
                 Ok(())
             } else {
                 Err(meta.error("unknown component attribute"))

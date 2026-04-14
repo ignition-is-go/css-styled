@@ -64,6 +64,13 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         let theme_name = quote!(#theme_path).to_string().replace(' ', "");
         crate::register_theme_vars(&struct_name.to_string(), &theme_name);
     }
+    for internals_path in &config.internals {
+        let internals_name = quote!(#internals_path).to_string().replace(' ', "");
+        // Copy internal vars to this component's known vars
+        if let Some(internal_vars) = crate::lookup_vars(&internals_name) {
+            crate::register_vars(&struct_name.to_string(), internal_vars);
+        }
+    }
 
     // Generate pieces
     let scope_const = gen_scope_const(&scope_str);
@@ -86,6 +93,8 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
     let default_impl = gen_default_impl(struct_name, &parsed_fields, &config)?;
     let overrides_struct = gen_overrides(struct_name, &base_name, &parsed_fields);
 
+    let builder_methods = gen_builder_methods(&parsed_fields);
+
     Ok(quote! {
         impl #struct_name {
             #scope_const
@@ -95,6 +104,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
             #css_vars_const
             #theme_vars_const
             #class_method
+            #builder_methods
         }
 
         #modifier_enum
@@ -476,6 +486,27 @@ fn build_selector(
     }
 
     selector
+}
+
+/// Generate chainable setter methods for all non-skip fields.
+/// Enables: `Style::default().field("value").other_field("value2")`
+fn gen_builder_methods(fields: &[ParsedField]) -> TokenStream {
+    let methods: Vec<TokenStream> = fields
+        .iter()
+        .filter(|f| !matches!(&f.config, PropConfig::Skip))
+        .map(|f| {
+            let ident = &f.ident;
+            let doc = format!("Set `{}`.", ident);
+            quote! {
+                #[doc = #doc]
+                pub fn #ident(mut self, value: impl Into<String>) -> Self {
+                    self.#ident = value.into();
+                    self
+                }
+            }
+        })
+        .collect();
+    quote! { #(#methods)* }
 }
 
 fn to_pascal_case(s: &str) -> String {

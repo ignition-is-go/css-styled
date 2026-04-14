@@ -96,3 +96,33 @@ fn vars_closure() {
     let style = WidgetStyle::vars(|v| v.size("50px").color("green"));
     assert_eq!(style, "--w-size: 50px; --w-color: green");
 }
+
+// --- CssVars derive for library-internal plumbing ---
+
+use css_styled::CssVars;
+
+#[derive(CssVars)]
+struct WidgetInternal {
+    #[var("--w-highlight")]
+    pub highlight: String,
+}
+
+#[test]
+fn css_vars_derive_produces_consts() {
+    assert_eq!(WidgetInternal::VAR_HIGHLIGHT, "--w-highlight");
+    assert_eq!(WidgetInternal::CSS_VARS, &["--w-highlight"]);
+}
+
+#[test]
+fn css_vars_derive_vars_builder() {
+    let style = WidgetInternal::vars(|v| v.highlight("red"));
+    assert_eq!(style, "--w-highlight: red");
+}
+
+#[test]
+fn css_vars_derive_overrides_builder() {
+    let style = WidgetInternal::overrides()
+        .highlight("blue")
+        .build();
+    assert_eq!(style, "--w-highlight: blue");
+}
