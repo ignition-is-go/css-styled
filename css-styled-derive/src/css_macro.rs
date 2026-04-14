@@ -19,6 +19,8 @@ struct CssDeclaration {
 /// e.g. `SCOPE.ACTIVE` is two names in one compound segment.
 struct CompoundSelector {
     names: Vec<Ident>,
+    /// Optional pseudo-class or pseudo-element, e.g. ":hover", "::-webkit-scrollbar"
+    pseudo: Option<String>,
 }
 
 /// A full selector is one or more compound selectors separated by whitespace (descendant combinator).
@@ -91,7 +93,8 @@ fn parse_selector(input: ParseStream) -> Result<Selector> {
     Ok(Selector { compounds })
 }
 
-/// Parse a compound selector like `SCOPE.ACTIVE` (dot-separated uppercase idents).
+/// Parse a compound selector like `SCOPE.ACTIVE` (dot-separated uppercase idents),
+/// optionally followed by a pseudo-class/element like `:hover` or `::-webkit-scrollbar`.
 fn parse_compound_selector(input: ParseStream) -> Result<CompoundSelector> {
     let mut names = Vec::new();
     let first: Ident = input.parse()?;
@@ -105,7 +108,42 @@ fn parse_compound_selector(input: ParseStream) -> Result<CompoundSelector> {
         names.push(name);
     }
 
-    Ok(CompoundSelector { names })
+    // Check for pseudo-class/element (e.g. :hover, ::before, ::-webkit-scrollbar)
+    let pseudo = if input.peek(Token![:]) {
+        let mut pseudo_str = String::new();
+        input.parse::<Token![:]>()?;
+        pseudo_str.push(':');
+
+        // Check for pseudo-element (double colon)
+        if input.peek(Token![:]) {
+            input.parse::<Token![:]>()?;
+            pseudo_str.push(':');
+        }
+
+        // Check for leading `-` (vendor prefix like -webkit-scrollbar)
+        if input.peek(Token![-]) {
+            input.parse::<Token![-]>()?;
+            pseudo_str.push('-');
+        }
+
+        // Parse the pseudo name (possibly hyphenated)
+        let ident: Ident = input.parse()?;
+        pseudo_str.push_str(&ident.to_string());
+
+        // Handle hyphenated pseudo names like `nth-child` or `webkit-scrollbar`
+        while input.peek(Token![-]) && input.peek2(Ident) {
+            input.parse::<Token![-]>()?;
+            let next: Ident = input.parse()?;
+            pseudo_str.push('-');
+            pseudo_str.push_str(&next.to_string());
+        }
+
+        Some(pseudo_str)
+    } else {
+        None
+    };
+
+    Ok(CompoundSelector { names, pseudo })
 }
 
 fn validate_uppercase_ident(ident: &Ident) -> Result<()> {
@@ -218,6 +256,13 @@ fn parse_value(input: ParseStream) -> Result<(String, Vec<(String, Span)>)> {
             continue;
         }
 
+        // Handle commas in top-level values (e.g. `width 0.15s ease, padding-right 0.15s ease`)
+        if input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+            parts.push(",".to_string());
+            continue;
+        }
+
         // Handle literal values (numbers, strings, etc.)
         if input.peek(syn::Lit) {
             let lit: syn::Lit = input.parse()?;
@@ -232,6 +277,19 @@ fn parse_value(input: ParseStream) -> Result<(String, Vec<(String, Span)>)> {
                 input.parse::<Token![%]>()?;
                 s.push('%');
             }
+            // Attach a trailing unit suffix without a space (e.g. `0.15s`, `100px`)
+            else if input.peek(Ident) {
+                let ident_str = input.fork().parse::<Ident>().map(|i| i.to_string()).unwrap_or_default();
+                let css_units = [
+                    "s", "ms", "px", "em", "rem", "vh", "vw", "vmin", "vmax",
+                    "ch", "ex", "cm", "mm", "in", "pt", "pc", "fr", "deg",
+                    "rad", "grad", "turn", "dpi", "dpcm", "dppx",
+                ];
+                if css_units.contains(&ident_str.as_str()) {
+                    let unit: Ident = input.parse()?;
+                    s.push_str(&unit.to_string());
+                }
+            }
             parts.push(s);
             continue;
         }
@@ -242,14 +300,23 @@ fn parse_value(input: ParseStream) -> Result<(String, Vec<(String, Span)>)> {
     }
 
     // Join with spaces, but collapse spaces around `-` that was pushed standalone
+    // and handle commas (no space before, space after)
     let mut result = String::new();
     for (i, part) in parts.iter().enumerate() {
         if part == "-" {
             // Negative sign: attach to next token, no space
+            if i > 0 && !result.ends_with('-') && !result.is_empty() {
+                result.push(' ');
+            }
             result.push('-');
             continue;
         }
+        if part == "," {
+            result.push(',');
+            continue;
+        }
         if i > 0 && !result.ends_with('-') && !result.is_empty() {
+            // Add space, but after comma we always want a space
             result.push(' ');
         }
         result.push_str(part);
@@ -258,16 +325,16 @@ fn parse_value(input: ParseStream) -> Result<(String, Vec<(String, Span)>)> {
     Ok((result, var_refs))
 }
 
-/// Parse the inside of a function call like `var(--w-size)`.
+/// Parse the inside of a function call like `var(--w-size)` or `translateY(-50%)`.
 /// Returns (the string content, optional var name if this looks like a CSS variable reference).
 fn parse_function_args(input: ParseStream) -> Result<(String, Option<String>)> {
     let mut parts = Vec::new();
     let mut var_name = None;
 
-    // Check for `--name` pattern (CSS variable reference)
-    if input.peek(Token![-]) {
-        input.parse::<Token![-]>()?;
-        if input.peek(Token![-]) {
+    while !input.is_empty() {
+        // Check for `--name` pattern (CSS variable reference)
+        if input.peek(Token![-]) && input.peek2(Token![-]) {
+            input.parse::<Token![-]>()?;
             input.parse::<Token![-]>()?;
             // Now parse hyphenated ident
             let first: Ident = input.parse()?;
@@ -279,25 +346,97 @@ fn parse_function_args(input: ParseStream) -> Result<(String, Option<String>)> {
                 name.push_str(&next.to_string());
             }
             let full_var = format!("--{}", name);
-            var_name = Some(full_var.clone());
+            if var_name.is_none() {
+                var_name = Some(full_var.clone());
+            }
             parts.push(full_var);
-        } else {
-            parts.push("-".to_string());
+            continue;
         }
-    }
 
-    // Parse remaining tokens
-    while !input.is_empty() {
+        // Handle negative sign
+        if input.peek(Token![-]) {
+            input.parse::<Token![-]>()?;
+            parts.push("-".to_string());
+            continue;
+        }
+
+        // Handle commas
         if input.peek(Token![,]) {
             input.parse::<Token![,]>()?;
             parts.push(",".to_string());
             continue;
         }
+
+        // Handle literals (numbers) with optional unit/percent suffix
+        if input.peek(syn::Lit) {
+            let lit: syn::Lit = input.parse()?;
+            let mut s = match &lit {
+                syn::Lit::Int(i) => i.to_string(),
+                syn::Lit::Float(f) => f.to_string(),
+                syn::Lit::Str(s) => s.value(),
+                _ => format!("{}", quote!(#lit)),
+            };
+            if input.peek(Token![%]) {
+                input.parse::<Token![%]>()?;
+                s.push('%');
+            } else if input.peek(Ident) {
+                let ident_str = input.fork().parse::<Ident>().map(|i| i.to_string()).unwrap_or_default();
+                let css_units = [
+                    "s", "ms", "px", "em", "rem", "vh", "vw", "vmin", "vmax",
+                    "ch", "ex", "cm", "mm", "in", "pt", "pc", "fr", "deg",
+                    "rad", "grad", "turn",
+                ];
+                if css_units.contains(&ident_str.as_str()) {
+                    let unit: Ident = input.parse()?;
+                    s.push_str(&unit.to_string());
+                }
+            }
+            parts.push(s);
+            continue;
+        }
+
+        // Handle idents (possibly function calls)
+        if input.peek(Ident) {
+            let ident: Ident = input.parse()?;
+            let word = ident.to_string();
+
+            // Nested function call
+            if input.peek(syn::token::Paren) {
+                let content;
+                syn::parenthesized!(content in input);
+                let inner = parse_function_args(&content)?;
+                parts.push(format!("{}({})", word, inner.0));
+                continue;
+            }
+
+            parts.push(word);
+            continue;
+        }
+
         let tt: proc_macro2::TokenTree = input.parse()?;
         parts.push(tt.to_string());
     }
 
-    let result = parts.join(" ").replace(" ,", ",");
+    // Join parts: collapse `-` onto next token, handle commas
+    let mut result = String::new();
+    for (i, part) in parts.iter().enumerate() {
+        if part == "-" {
+            if !result.is_empty() && !result.ends_with('-') && !result.ends_with(' ') {
+                result.push(' ');
+            }
+            result.push('-');
+            continue;
+        }
+        if part == "," {
+            result.push(',');
+            continue;
+        }
+        if i > 0 && !result.ends_with('-') && !result.is_empty() {
+            result.push(' ');
+        }
+        result.push_str(part);
+    }
+
     Ok((result, var_name))
 }
 
@@ -412,6 +551,10 @@ fn build_format_for_rule(struct_name: &Ident, rule: &CssRule) -> (String, Vec<To
                 format_parts.push(".{}".to_string());
             }
             args.push(quote! { #struct_name::#name });
+        }
+        // Append pseudo-class/element directly after the last class (no space)
+        if let Some(pseudo) = &compound.pseudo {
+            format_parts.push(pseudo.clone());
         }
     }
 
