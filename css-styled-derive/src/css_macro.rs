@@ -1,5 +1,5 @@
 use proc_macro2::{Span, TokenStream};
-use quote::quote;
+use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
 use syn::{braced, Error, Ident, Result, Token};
 
@@ -11,6 +11,8 @@ struct CssDeclaration {
     property_span: Span,
     value: String,
     value_span: Span,
+    /// CSS variable references found in the value, e.g. `["--w-size"]`
+    var_refs: Vec<(String, Span)>,
 }
 
 /// A segment in a compound selector (names joined by dots).
@@ -131,7 +133,7 @@ fn parse_declaration(input: ParseStream) -> Result<CssDeclaration> {
 
     // Parse value tokens until `;`
     let value_span = input.span();
-    let value = parse_value(input)?;
+    let (value, var_refs) = parse_value(input)?;
 
     input.parse::<Token![;]>()?;
 
@@ -140,6 +142,7 @@ fn parse_declaration(input: ParseStream) -> Result<CssDeclaration> {
         property_span,
         value,
         value_span,
+        var_refs,
     })
 }
 
@@ -159,8 +162,10 @@ fn parse_hyphenated_ident(input: ParseStream) -> Result<String> {
 }
 
 /// Parse a CSS value (everything up to the semicolon).
-fn parse_value(input: ParseStream) -> Result<String> {
+/// Returns the value string and any `var(--name)` references found.
+fn parse_value(input: ParseStream) -> Result<(String, Vec<(String, Span)>)> {
     let mut parts = Vec::new();
+    let mut var_refs = Vec::new();
 
     while !input.peek(Token![;]) {
         if input.is_empty() {
@@ -174,10 +179,29 @@ fn parse_value(input: ParseStream) -> Result<String> {
             continue;
         }
 
-        // Handle idents (possibly hyphenated)
+        // Handle idents (possibly hyphenated, possibly function calls like `var(...)`)
         if input.peek(Ident) {
             let ident: Ident = input.parse()?;
             let mut word = ident.to_string();
+
+            // Check for function call syntax: ident(...)
+            if input.peek(syn::token::Paren) {
+                let content;
+                let _paren_span = syn::parenthesized!(content in input);
+                let inner = parse_function_args(&content)?;
+                let func_str = format!("{}({})", word, inner.0);
+
+                // If this is a var() call, extract the variable name reference
+                if word == "var" {
+                    if let Some(var_name) = &inner.1 {
+                        var_refs.push((var_name.clone(), ident.span()));
+                    }
+                }
+
+                parts.push(func_str);
+                continue;
+            }
+
             // Check for hyphenated values like `no-repeat`
             while input.peek(Token![-]) && !input.peek2(Token![;]) {
                 // Peek further: if after `-` there's an ident, it's hyphenated
@@ -231,12 +255,64 @@ fn parse_value(input: ParseStream) -> Result<String> {
         result.push_str(part);
     }
 
-    Ok(result)
+    Ok((result, var_refs))
+}
+
+/// Parse the inside of a function call like `var(--w-size)`.
+/// Returns (the string content, optional var name if this looks like a CSS variable reference).
+fn parse_function_args(input: ParseStream) -> Result<(String, Option<String>)> {
+    let mut parts = Vec::new();
+    let mut var_name = None;
+
+    // Check for `--name` pattern (CSS variable reference)
+    if input.peek(Token![-]) {
+        input.parse::<Token![-]>()?;
+        if input.peek(Token![-]) {
+            input.parse::<Token![-]>()?;
+            // Now parse hyphenated ident
+            let first: Ident = input.parse()?;
+            let mut name = first.to_string();
+            while input.peek(Token![-]) && input.peek2(Ident) {
+                input.parse::<Token![-]>()?;
+                let next: Ident = input.parse()?;
+                name.push('-');
+                name.push_str(&next.to_string());
+            }
+            let full_var = format!("--{}", name);
+            var_name = Some(full_var.clone());
+            parts.push(full_var);
+        } else {
+            parts.push("-".to_string());
+        }
+    }
+
+    // Parse remaining tokens
+    while !input.is_empty() {
+        if input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+            parts.push(",".to_string());
+            continue;
+        }
+        let tt: proc_macro2::TokenTree = input.parse()?;
+        parts.push(tt.to_string());
+    }
+
+    let result = parts.join(" ").replace(" ,", ",");
+    Ok((result, var_name))
+}
+
+/// Convert a CSS variable name like `--sh-thickness` to a const name like `VAR_SH_THICKNESS`.
+fn var_to_const_name(var_name: &str) -> String {
+    let stripped = var_name.strip_prefix("--").unwrap_or(var_name);
+    format!("VAR_{}", stripped.replace('-', "_").to_uppercase())
 }
 
 /// Validate CSS properties and values, then generate the output code.
 pub fn expand(input: CssMacroInput) -> Result<TokenStream> {
     let struct_name = &input.struct_name;
+
+    // Collect all var() references for compile-time validation
+    let mut var_checks: Vec<TokenStream> = Vec::new();
 
     // Validate all declarations at compile time
     for rule in &input.rules {
@@ -253,22 +329,35 @@ pub fn expand(input: CssMacroInput) -> Result<TokenStream> {
                 return Err(Error::new(decl.property_span, msg));
             }
 
-            // Validate value
-            let result = css_spec_data::validate_value(&decl.property, &decl.value);
-            match result {
-                css_spec_data::ValidationResult::Valid => {}
-                css_spec_data::ValidationResult::Warn(_) => {
-                    // Warnings are acceptable at compile time; don't fail
+            // Skip value validation for values containing var() references
+            let has_var_refs = !decl.var_refs.is_empty();
+
+            if !has_var_refs {
+                // Validate value
+                let result = css_spec_data::validate_value(&decl.property, &decl.value);
+                match result {
+                    css_spec_data::ValidationResult::Valid => {}
+                    css_spec_data::ValidationResult::Warn(_) => {
+                        // Warnings are acceptable at compile time; don't fail
+                    }
+                    css_spec_data::ValidationResult::Invalid(msg) => {
+                        return Err(Error::new(
+                            decl.value_span,
+                            format!(
+                                "invalid CSS value `{}` for property `{}`: {}",
+                                decl.value, decl.property, msg
+                            ),
+                        ));
+                    }
                 }
-                css_spec_data::ValidationResult::Invalid(msg) => {
-                    return Err(Error::new(
-                        decl.value_span,
-                        format!(
-                            "invalid CSS value `{}` for property `{}`: {}",
-                            decl.value, decl.property, msg
-                        ),
-                    ));
-                }
+            }
+
+            // Generate compile-time checks for var() references
+            for (var_name, span) in &decl.var_refs {
+                let const_name = format_ident!("{}", var_to_const_name(var_name), span = *span);
+                var_checks.push(quote! {
+                    let _ = #struct_name::#const_name;
+                });
             }
         }
     }
@@ -287,6 +376,14 @@ pub fn expand(input: CssMacroInput) -> Result<TokenStream> {
 
     Ok(quote! {
         {
+            // Compile-time validation of var() references against struct consts
+            #[allow(unused)]
+            const _: () = {
+                fn _check_var_refs() {
+                    #(#var_checks)*
+                }
+            };
+
             static CSS: ::std::sync::OnceLock<String> = ::std::sync::OnceLock::new();
             CSS.get_or_init(|| {
                 let mut parts: Vec<String> = Vec::new();

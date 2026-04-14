@@ -9,6 +9,8 @@ pub struct ComponentConfig {
     pub classes: Vec<(Ident, LitStr)>,
     /// Modifier variant names
     pub modifiers: Vec<Ident>,
+    /// If true, user will provide their own StyledComponentBase impl
+    pub custom_base_css: bool,
 }
 
 /// Parsed field-level configuration from `#[prop(...)]` attributes.
@@ -21,6 +23,10 @@ pub enum PropConfig {
         css: LitStr,
         on: Option<Ident>,
         pseudo: Option<LitStr>,
+    },
+    /// The field declares a CSS custom property (variable).
+    Variable {
+        var: LitStr,
     },
 }
 
@@ -62,6 +68,9 @@ pub fn parse_component_config(input: &DeriveInput) -> Result<ComponentConfig> {
                     }
                     let _comma: syn::Token![,] = content.parse()?;
                 }
+                Ok(())
+            } else if meta.path.is_ident("base_css") {
+                config.custom_base_css = true;
                 Ok(())
             } else if meta.path.is_ident("modifier") {
                 let content;
@@ -106,6 +115,7 @@ pub fn parse_prop_config(field: &Field) -> Result<Option<PropConfig>> {
         let mut css: Option<LitStr> = None;
         let mut on: Option<Ident> = None;
         let mut pseudo: Option<LitStr> = None;
+        let mut var: Option<LitStr> = None;
 
         attr.parse_nested_meta(|meta| {
             if meta.path.is_ident("skip") {
@@ -123,8 +133,12 @@ pub fn parse_prop_config(field: &Field) -> Result<Option<PropConfig>> {
                 let value = meta.value()?;
                 pseudo = Some(value.parse()?);
                 Ok(())
+            } else if meta.path.is_ident("var") {
+                let value = meta.value()?;
+                var = Some(value.parse()?);
+                Ok(())
             } else {
-                Err(meta.error("unknown prop attribute; expected `css`, `on`, `pseudo`, or `skip`"))
+                Err(meta.error("unknown prop attribute; expected `css`, `on`, `pseudo`, `var`, or `skip`"))
             }
         })?;
 
@@ -132,10 +146,21 @@ pub fn parse_prop_config(field: &Field) -> Result<Option<PropConfig>> {
             return Ok(Some(PropConfig::Skip));
         }
 
+        if let Some(var_lit) = var {
+            let var_name = var_lit.value();
+            if !var_name.starts_with("--") {
+                return Err(Error::new_spanned(
+                    &var_lit,
+                    "CSS custom property name must start with `--`",
+                ));
+            }
+            return Ok(Some(PropConfig::Variable { var: var_lit }));
+        }
+
         if css.is_none() {
             return Err(Error::new_spanned(
                 attr,
-                "`#[prop(...)]` requires `css = \"property-name\"`",
+                "`#[prop(...)]` requires `css = \"property-name\"` or `var = \"--name\"`",
             ));
         }
 

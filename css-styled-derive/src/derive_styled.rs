@@ -58,6 +58,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
     // Generate pieces
     let scope_const = gen_scope_const(&scope_str);
     let class_consts = gen_class_consts(&config);
+    let var_consts = gen_var_consts(&parsed_fields);
     let base_name = {
         let s = struct_name.to_string();
         if s.ends_with("Style") {
@@ -66,6 +67,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
             s.clone()
         }
     };
+    let modifier_consts = gen_modifier_consts(&config);
     let modifier_enum = gen_modifier_enum(struct_name, &base_name, &config);
     let class_method = gen_class_method(struct_name, &base_name, &config, &scope_str);
     let into_css_impl = gen_into_css(struct_name, &parsed_fields, &config, &scope_str);
@@ -74,6 +76,8 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         impl #struct_name {
             #scope_const
             #class_consts
+            #modifier_consts
+            #var_consts
             #class_method
         }
 
@@ -86,8 +90,22 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
 fn validate_fields(fields: &[ParsedField], config: &ComponentConfig) -> Result<()> {
     let alias_names: Vec<String> = config.classes.iter().map(|(id, _)| id.to_string()).collect();
     let mut seen: Vec<(String, Option<String>, Option<String>)> = Vec::new();
+    let mut seen_vars: Vec<String> = Vec::new();
 
     for field in fields {
+        // Check for Variable fields
+        if let PropConfig::Variable { var } = &field.config {
+            let var_name = var.value();
+            if seen_vars.contains(&var_name) {
+                return Err(Error::new_spanned(
+                    var,
+                    format!("duplicate CSS custom property `{var_name}`"),
+                ));
+            }
+            seen_vars.push(var_name);
+            continue;
+        }
+
         let PropConfig::Mapped { css, on, pseudo } = &field.config else {
             continue;
         };
@@ -190,6 +208,45 @@ fn gen_class_consts(config: &ComponentConfig) -> TokenStream {
     quote! { #(#consts)* }
 }
 
+/// Convert a CSS variable name like `--sh-thickness` to a const name like `VAR_SH_THICKNESS`.
+fn var_to_const_name(var_name: &str) -> String {
+    let stripped = var_name.strip_prefix("--").unwrap_or(var_name);
+    format!("VAR_{}", stripped.replace('-', "_").to_uppercase())
+}
+
+fn gen_var_consts(fields: &[ParsedField]) -> TokenStream {
+    let consts: Vec<TokenStream> = fields
+        .iter()
+        .filter_map(|f| {
+            if let PropConfig::Variable { var } = &f.config {
+                let var_name = var.value();
+                let const_name = format_ident!("{}", var_to_const_name(&var_name));
+                Some(quote! {
+                    pub const #const_name: &'static str = #var_name;
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+    quote! { #(#consts)* }
+}
+
+fn gen_modifier_consts(config: &ComponentConfig) -> TokenStream {
+    let consts: Vec<TokenStream> = config
+        .modifiers
+        .iter()
+        .map(|m| {
+            let name_str = m.to_string();
+            let const_name = format_ident!("{}", name_str.to_uppercase());
+            quote! {
+                pub const #const_name: &'static str = #name_str;
+            }
+        })
+        .collect();
+    quote! { #(#consts)* }
+}
+
 fn gen_modifier_enum(_struct_name: &syn::Ident, base_name: &str, config: &ComponentConfig) -> TokenStream {
     if config.modifiers.is_empty() {
         return TokenStream::new();
@@ -257,6 +314,40 @@ fn gen_into_css(
 ) -> TokenStream {
     let mut rule_exprs = Vec::new();
 
+    // Collect CSS variable fields into a single rule on the scope selector
+    let var_fields: Vec<&ParsedField> = fields
+        .iter()
+        .filter(|f| matches!(&f.config, PropConfig::Variable { .. }))
+        .collect();
+
+    if !var_fields.is_empty() {
+        let var_idents: Vec<&syn::Ident> = var_fields
+            .iter()
+            .map(|f| &f.ident)
+            .collect();
+        let var_names: Vec<String> = var_fields
+            .iter()
+            .map(|f| {
+                if let PropConfig::Variable { var } = &f.config {
+                    var.value()
+                } else {
+                    unreachable!()
+                }
+            })
+            .collect();
+        let scope_selector = format!(".{}", scope_str);
+
+        rule_exprs.push(quote! {
+            {
+                let mut decls = Vec::new();
+                #(
+                    decls.push(format!("{}: {}", #var_names, &self.#var_idents));
+                )*
+                format!("{} {{ {} }}", #scope_selector, decls.join("; "))
+            }
+        });
+    }
+
     for field in fields {
         let PropConfig::Mapped { css, on, pseudo } = &field.config else {
             continue;
@@ -287,6 +378,13 @@ fn gen_into_css(
         });
     }
 
+    let base_css_impl = if config.custom_base_css {
+        // User will provide their own StyledComponentBase impl
+        TokenStream::new()
+    } else {
+        quote! { impl css_styled::StyledComponentBase for #struct_name {} }
+    };
+
     quote! {
         impl css_styled::IntoCss for #struct_name {
             fn to_css(&self) -> String {
@@ -304,7 +402,7 @@ fn gen_into_css(
             }
         }
 
-        impl css_styled::StyledComponentBase for #struct_name {}
+        #base_css_impl
     }
 }
 
