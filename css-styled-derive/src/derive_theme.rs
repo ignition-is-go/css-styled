@@ -76,10 +76,14 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         });
     }
 
-    // Register theme vars in the proc-macro-internal registry
+    // Register theme vars and field names in the proc-macro-internal registry
     crate::register_vars(
         &struct_name.to_string(),
         theme_fields.iter().map(|tf| tf.var_name.clone()),
+    );
+    crate::register_theme_fields(
+        &struct_name.to_string(),
+        theme_fields.iter().map(|tf| tf.ident.to_string()),
     );
 
     // Check for duplicate var names

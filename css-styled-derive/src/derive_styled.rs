@@ -83,7 +83,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
     let modifier_enum = gen_modifier_enum(struct_name, &base_name, &config);
     let class_method = gen_class_method(struct_name, &base_name, &config, &scope_str);
     let into_css_impl = gen_into_css(struct_name, &parsed_fields, &config, &scope_str);
-    let default_impl = gen_default_impl(struct_name, &parsed_fields, &config);
+    let default_impl = gen_default_impl(struct_name, &parsed_fields, &config)?;
 
     Ok(quote! {
         impl #struct_name {
@@ -499,7 +499,7 @@ fn gen_default_impl(
     struct_name: &syn::Ident,
     fields: &[ParsedField],
     config: &ComponentConfig,
-) -> TokenStream {
+) -> Result<TokenStream> {
     use crate::parse_attrs::PropDefault;
 
     // Check if all non-skip fields have defaults
@@ -514,16 +514,33 @@ fn gen_default_impl(
 
         let Some(default) = default_opt else {
             // A field without a default — can't generate Default impl
-            return TokenStream::new();
+            return Ok(TokenStream::new());
         };
 
         let value_expr = match default {
             PropDefault::ThemeVar(theme_field) => {
                 let Some(theme_path) = &config.theme else {
-                    // theme_default used but no theme set — this is caught in validation
-                    return TokenStream::new();
+                    return Err(Error::new_spanned(
+                        theme_field,
+                        "cannot use `default = theme.field` without #[component(theme = ...)]",
+                    ));
                 };
-                // Convert theme field name to the VAR_ const name
+                // Validate the field name against the theme's registered fields
+                let theme_name = quote!(#theme_path).to_string().replace(' ', "");
+                let field_str = theme_field.to_string();
+                if let Some(known_fields) = crate::lookup_theme_fields(&theme_name) {
+                    if !known_fields.contains(&field_str) {
+                        let mut available: Vec<_> = known_fields.iter().cloned().collect();
+                        available.sort();
+                        return Err(Error::new_spanned(
+                            theme_field,
+                            format!(
+                                "unknown theme field `{}`; `{}` has fields: {}",
+                                field_str, theme_name, available.join(", "),
+                            ),
+                        ));
+                    }
+                }
                 let const_name = format_ident!(
                     "VAR_{}",
                     theme_field.to_string().to_uppercase()
@@ -544,7 +561,7 @@ fn gen_default_impl(
         quote! { #ident: #expr }
     }).collect();
 
-    quote! {
+    Ok(quote! {
         impl Default for #struct_name {
             fn default() -> Self {
                 Self {
@@ -552,5 +569,5 @@ fn gen_default_impl(
                 }
             }
         }
-    }
+    })
 }

@@ -16,6 +16,9 @@ static VAR_REGISTRY: Mutex<Option<HashMap<String, HashSet<String>>>> = Mutex::ne
 /// Registry of which theme each component uses.
 static THEME_REGISTRY: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
 
+/// Registry of theme field names (for validating `default = theme.field_name`).
+static THEME_FIELDS: Mutex<Option<HashMap<String, HashSet<String>>>> = Mutex::new(None);
+
 /// Register CSS variable names for a struct (called by derives).
 fn register_vars(struct_name: &str, vars: impl IntoIterator<Item = String>) {
     let mut guard = VAR_REGISTRY.lock().unwrap();
@@ -54,6 +57,22 @@ fn lookup_vars(struct_name: &str) -> Option<HashSet<String>> {
 fn lookup_theme(struct_name: &str) -> Option<String> {
     let guard = THEME_REGISTRY.lock().unwrap();
     guard.as_ref()?.get(struct_name).cloned()
+}
+
+/// Register theme field names (called by Theme derive).
+fn register_theme_fields(theme_name: &str, fields: impl IntoIterator<Item = String>) {
+    let mut guard = THEME_FIELDS.lock().unwrap();
+    let map = guard.get_or_insert_with(HashMap::new);
+    let entry = map.entry(theme_name.to_string()).or_default();
+    for f in fields {
+        entry.insert(f);
+    }
+}
+
+/// Look up known field names for a theme (called by StyledComponent derive).
+fn lookup_theme_fields(theme_name: &str) -> Option<HashSet<String>> {
+    let guard = THEME_FIELDS.lock().unwrap();
+    guard.as_ref()?.get(theme_name).cloned()
 }
 
 /// Derive macro for generating typed CSS from a theme struct.
