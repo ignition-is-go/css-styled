@@ -94,14 +94,25 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         seen.push(tf.var_name.clone());
     }
 
-    // Generate VAR_* consts
+    // Generate VAR_* consts (from the CSS variable name, e.g. --ml-surface → VAR_ML_SURFACE)
+    // Also generate field-name-based consts (e.g. surface → VAR_SURFACE) for use with
+    // `default = theme.surface` in StyledComponent derives.
     let var_consts: Vec<TokenStream> = theme_fields
         .iter()
         .map(|tf| {
-            let const_name = format_ident!("{}", var_to_const_name(&tf.var_name));
+            let var_const_name = format_ident!("{}", var_to_const_name(&tf.var_name));
+            let field_const_name = format_ident!("VAR_{}", tf.ident.to_string().to_uppercase());
             let var_name = &tf.var_name;
-            quote! {
-                pub const #const_name: &'static str = #var_name;
+            if var_const_name == field_const_name {
+                // Same name — only emit once
+                quote! {
+                    pub const #var_const_name: &'static str = #var_name;
+                }
+            } else {
+                quote! {
+                    pub const #var_const_name: &'static str = #var_name;
+                    pub const #field_const_name: &'static str = #var_name;
+                }
             }
         })
         .collect();
