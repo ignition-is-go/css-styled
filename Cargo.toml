@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = [
+    "css-spec-data",
+    "css-styled-derive",
+    "css-styled",
+]

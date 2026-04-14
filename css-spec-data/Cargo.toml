@@ -1,0 +1,12 @@
+[package]
+name = "css-spec-data"
+version = "0.1.0"
+edition = "2021"
+description = "CSS property spec data generated from W3C @webref/css"
+
+[dependencies]
+
+[build-dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = "2"

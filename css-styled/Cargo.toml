@@ -1,0 +1,17 @@
+[package]
+name = "css-styled"
+version = "0.1.0"
+edition = "2021"
+description = "Typed, spec-validated CSS for Rust component libraries"
+
+[dependencies]
+css-styled-derive = { path = "../css-styled-derive" }
+css-spec-data = { path = "../css-spec-data" }
+
+[features]
+leptos = ["dep:leptos"]
+
+[dependencies.leptos]
+version = "0.8"
+features = ["csr"]
+optional = true

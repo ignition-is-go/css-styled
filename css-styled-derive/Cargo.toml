@@ -1,0 +1,15 @@
+[package]
+name = "css-styled-derive"
+version = "0.1.0"
+edition = "2021"
+description = "Proc macros for css-styled: #[derive(StyledComponent)] and css!()"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+css-spec-data = { path = "../css-spec-data" }
+syn = { version = "2", features = ["full", "extra-traits"] }
+quote = "1"
+proc-macro2 = "1"
+strsim = "0.11"
