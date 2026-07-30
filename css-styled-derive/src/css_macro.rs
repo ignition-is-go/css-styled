@@ -98,7 +98,23 @@ fn process_token_list(
                     let placeholder = if let Some(existing) = existing {
                         existing.placeholder.clone()
                     } else {
-                        let p = format!("css-s-{}", name_refs.len());
+                        // Zero-padded so every placeholder is the same length and
+                        // none can be a *prefix* of another. Substitution below
+                        // is a plain string find/replace: with unpadded indices,
+                        // `css-s-1` is a prefix of `css-s-10`, so `find` returns
+                        // the same offset for both, the shorter one wins the
+                        // strict `pos < earliest` comparison, and it consumes only
+                        // 7 of the 8 characters — orphaning the trailing digit,
+                        // which then welds itself onto the next emitted class
+                        // (`.scope-panel` became `.scope-panel0`). That silently
+                        // dropped whole rules from the eleventh distinct name
+                        // onward, and again at 21, 31, ...
+                        //
+                        // Fixed width removes the failure structurally rather
+                        // than relying on the substitution loop visiting longer
+                        // placeholders first — an ordering invariant that had
+                        // already been lost once.
+                        let p = format!("css-s-{:04}", name_refs.len());
                         name_refs.push(NameRef {
                             ident: ident.clone(),
                             placeholder: p.clone(),
@@ -323,7 +339,10 @@ pub fn expand(input: CssMacroInput) -> Result<TokenStream> {
 
     // Deduplicate name refs — same name gets same constant but may appear multiple times
     // We need to replace all occurrences and add one arg per occurrence
-    // Sort by longest placeholder first to avoid partial replacement
+    //
+    // No ordering requirement here: placeholders are fixed-width (see where they
+    // are minted), so none is a prefix of another and the earliest-match search
+    // below is unambiguous whatever order this vec happens to be in.
     let mut replacements: Vec<(String, &Ident)> = Vec::new();
     for nr in &name_refs {
         replacements.push((nr.placeholder.clone(), &nr.ident));
