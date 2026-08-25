@@ -6,7 +6,10 @@ fn has_width_property() {
     assert!(prop.is_some(), "width should be a known CSS property");
     let prop = prop.unwrap();
     assert_eq!(prop.name, "width");
-    assert!(prop.syntax.contains("length"), "width syntax should mention length");
+    assert!(
+        prop.syntax.contains("length"),
+        "width syntax should mention length"
+    );
 }
 
 #[test]

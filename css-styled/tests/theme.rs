@@ -1,4 +1,4 @@
-use css_styled::{Theme, StyledComponent, IntoCss, StyledComponentBase, IntoThemeCss, css};
+use css_styled::{css, IntoCss, IntoThemeCss, StyledComponent, StyledComponentBase, Theme};
 
 #[derive(Theme, Clone)]
 pub struct AppTheme {
@@ -28,7 +28,9 @@ struct CardStyle {
 
 impl Default for CardStyle {
     fn default() -> Self {
-        Self { padding: "16px".into() }
+        Self {
+            padding: "16px".into(),
+        }
     }
 }
 

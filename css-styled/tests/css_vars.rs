@@ -1,4 +1,4 @@
-use css_styled::{StyledComponent, IntoCss, StyledComponentBase, css};
+use css_styled::{css, IntoCss, StyledComponent, StyledComponentBase};
 
 #[derive(StyledComponent, Clone)]
 #[component(scope = "widget")]
@@ -70,18 +70,13 @@ fn var_consts_exist() {
 
 #[test]
 fn overrides_builder() {
-    let style = WidgetStyle::overrides()
-        .size("200px".to_string())
-        .build();
+    let style = WidgetStyle::overrides().size("200px".to_string()).build();
     assert_eq!(style, "--w-size: 200px");
 }
 
 #[test]
 fn overrides_multiple() {
-    let style = WidgetStyle::overrides()
-        .size("200px")
-        .color("red")
-        .build();
+    let style = WidgetStyle::overrides().size("200px").color("red").build();
     assert_eq!(style, "--w-size: 200px; --w-color: red");
 }
 
@@ -121,8 +116,6 @@ fn css_vars_derive_vars_builder() {
 
 #[test]
 fn css_vars_derive_overrides_builder() {
-    let style = WidgetInternal::overrides()
-        .highlight("blue")
-        .build();
+    let style = WidgetInternal::overrides().highlight("blue").build();
     assert_eq!(style, "--w-highlight: blue");
 }

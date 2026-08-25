@@ -15,9 +15,19 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
     let fields = match &input.data {
         syn::Data::Struct(s) => match &s.fields {
             syn::Fields::Named(named) => &named.named,
-            _ => return Err(Error::new_spanned(struct_name, "CssVars requires named fields")),
+            _ => {
+                return Err(Error::new_spanned(
+                    struct_name,
+                    "CssVars requires named fields",
+                ))
+            }
         },
-        _ => return Err(Error::new_spanned(struct_name, "CssVars can only be derived on structs")),
+        _ => {
+            return Err(Error::new_spanned(
+                struct_name,
+                "CssVars can only be derived on structs",
+            ))
+        }
     };
 
     let mut var_fields: Vec<(syn::Ident, String)> = Vec::new();
@@ -31,17 +41,23 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                 let lit: LitStr = attr.parse_args()?;
                 let val = lit.value();
                 if !val.starts_with("--") {
-                    return Err(Error::new_spanned(&lit, "CSS variable name must start with `--`"));
+                    return Err(Error::new_spanned(
+                        &lit,
+                        "CSS variable name must start with `--`",
+                    ));
                 }
                 var_lit = Some(lit);
             }
         }
 
         let var_lit = var_lit.ok_or_else(|| {
-            Error::new_spanned(&field_ident, format!(
-                "field `{}` is missing a `#[var(\"--name\")]` attribute",
-                field_ident,
-            ))
+            Error::new_spanned(
+                &field_ident,
+                format!(
+                    "field `{}` is missing a `#[var(\"--name\")]` attribute",
+                    field_ident,
+                ),
+            )
         })?;
 
         var_fields.push((field_ident, var_lit.value()));
@@ -54,10 +70,13 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
     );
 
     // Generate VAR_* consts
-    let var_consts: Vec<TokenStream> = var_fields.iter().map(|(ident, var_name)| {
-        let const_name = format_ident!("VAR_{}", ident.to_string().to_uppercase());
-        quote! { pub const #const_name: &'static str = #var_name; }
-    }).collect();
+    let var_consts: Vec<TokenStream> = var_fields
+        .iter()
+        .map(|(ident, var_name)| {
+            let const_name = format_ident!("VAR_{}", ident.to_string().to_uppercase());
+            quote! { pub const #const_name: &'static str = #var_name; }
+        })
+        .collect();
 
     // CSS_VARS array
     let var_names: Vec<&str> = var_fields.iter().map(|(_, v)| v.as_str()).collect();
@@ -65,30 +84,42 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
     // Overrides builder
     let overrides_name = format_ident!("{}Overrides", struct_name);
 
-    let struct_fields: Vec<TokenStream> = var_fields.iter().map(|(ident, _)| {
-        quote! { #ident: Option<String> }
-    }).collect();
+    let struct_fields: Vec<TokenStream> = var_fields
+        .iter()
+        .map(|(ident, _)| {
+            quote! { #ident: Option<String> }
+        })
+        .collect();
 
-    let setter_methods: Vec<TokenStream> = var_fields.iter().map(|(ident, _)| {
-        quote! {
-            pub fn #ident(mut self, value: impl Into<String>) -> Self {
-                self.#ident = Some(value.into());
-                self
+    let setter_methods: Vec<TokenStream> = var_fields
+        .iter()
+        .map(|(ident, _)| {
+            quote! {
+                pub fn #ident(mut self, value: impl Into<String>) -> Self {
+                    self.#ident = Some(value.into());
+                    self
+                }
             }
-        }
-    }).collect();
+        })
+        .collect();
 
-    let build_parts: Vec<TokenStream> = var_fields.iter().map(|(ident, var_name)| {
-        quote! {
-            if let Some(ref val) = self.#ident {
-                parts.push(format!("{}: {}", #var_name, val));
+    let build_parts: Vec<TokenStream> = var_fields
+        .iter()
+        .map(|(ident, var_name)| {
+            quote! {
+                if let Some(ref val) = self.#ident {
+                    parts.push(format!("{}: {}", #var_name, val));
+                }
             }
-        }
-    }).collect();
+        })
+        .collect();
 
-    let default_fields: Vec<TokenStream> = var_fields.iter().map(|(ident, _)| {
-        quote! { #ident: None }
-    }).collect();
+    let default_fields: Vec<TokenStream> = var_fields
+        .iter()
+        .map(|(ident, _)| {
+            quote! { #ident: None }
+        })
+        .collect();
 
     Ok(quote! {
         impl #struct_name {
