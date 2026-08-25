@@ -125,8 +125,7 @@ const SPEC_FILES: &[&str] = &[
     "selectors",
 ];
 
-const BASE_URL: &str =
-    "https://raw.githubusercontent.com/w3c/webref/curated/ed/css";
+const BASE_URL: &str = "https://raw.githubusercontent.com/w3c/webref/curated/ed/css";
 
 // ── Cache helpers ─────────────────────────────────────────────────────────────
 
@@ -385,8 +384,12 @@ fn main() {
     out.push_str("];\n");
 
     fs::write(&out_path, out).expect("failed to write generated.rs");
-    eprintln!("cargo:warning=Generated {} properties, {} pseudo-classes, {} pseudo-elements",
-        properties.len(), pseudo_classes.len(), pseudo_elements.len());
+    eprintln!(
+        "cargo:warning=Generated {} properties, {} pseudo-classes, {} pseudo-elements",
+        properties.len(),
+        pseudo_classes.len(),
+        pseudo_elements.len()
+    );
 }
 
 fn strip_parens(s: &str) -> &str {

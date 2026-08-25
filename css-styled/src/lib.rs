@@ -1,5 +1,5 @@
-pub use css_styled_derive::{StyledComponent, Theme, CssVars, css};
 pub use css_spec_data;
+pub use css_styled_derive::{css, CssVars, StyledComponent, Theme};
 
 /// Trait for types that can produce scoped CSS.
 pub trait IntoCss {

@@ -56,9 +56,16 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
     validate_fields(&parsed_fields, &config)?;
 
     // Register vars in the proc-macro-internal registry so css! can validate them
-    let component_var_names: Vec<String> = parsed_fields.iter().filter_map(|f| {
-        if let PropConfig::Variable { var, .. } = &f.config { Some(var.value()) } else { None }
-    }).collect();
+    let component_var_names: Vec<String> = parsed_fields
+        .iter()
+        .filter_map(|f| {
+            if let PropConfig::Variable { var, .. } = &f.config {
+                Some(var.value())
+            } else {
+                None
+            }
+        })
+        .collect();
     crate::register_vars(&struct_name.to_string(), component_var_names);
     if let Some(theme_path) = &config.theme {
         let theme_name = quote!(#theme_path).to_string().replace(' ', "");
@@ -118,7 +125,11 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
 }
 
 fn validate_fields(fields: &[ParsedField], config: &ComponentConfig) -> Result<()> {
-    let alias_names: Vec<String> = config.classes.iter().map(|(id, _)| id.to_string()).collect();
+    let alias_names: Vec<String> = config
+        .classes
+        .iter()
+        .map(|(id, _)| id.to_string())
+        .collect();
     let mut seen: Vec<(String, Option<String>, Option<String>)> = Vec::new();
     let mut seen_vars: Vec<String> = Vec::new();
 
@@ -136,7 +147,10 @@ fn validate_fields(fields: &[ParsedField], config: &ComponentConfig) -> Result<(
             continue;
         }
 
-        let PropConfig::Mapped { css, on, pseudo, .. } = &field.config else {
+        let PropConfig::Mapped {
+            css, on, pseudo, ..
+        } = &field.config
+        else {
             continue;
         };
 
@@ -305,7 +319,11 @@ fn gen_modifier_consts(config: &ComponentConfig) -> TokenStream {
     quote! { #(#consts)* }
 }
 
-fn gen_modifier_enum(_struct_name: &syn::Ident, base_name: &str, config: &ComponentConfig) -> TokenStream {
+fn gen_modifier_enum(
+    _struct_name: &syn::Ident,
+    base_name: &str,
+    config: &ComponentConfig,
+) -> TokenStream {
     if config.modifiers.is_empty() {
         return TokenStream::new();
     }
@@ -379,10 +397,7 @@ fn gen_into_css(
         .collect();
 
     if !var_fields.is_empty() {
-        let var_idents: Vec<&syn::Ident> = var_fields
-            .iter()
-            .map(|f| &f.ident)
-            .collect();
+        let var_idents: Vec<&syn::Ident> = var_fields.iter().map(|f| &f.ident).collect();
         let var_names: Vec<String> = var_fields
             .iter()
             .map(|f| {
@@ -407,7 +422,10 @@ fn gen_into_css(
     }
 
     for field in fields {
-        let PropConfig::Mapped { css, on, pseudo, .. } = &field.config else {
+        let PropConfig::Mapped {
+            css, on, pseudo, ..
+        } = &field.config
+        else {
             continue;
         };
 
@@ -532,11 +550,7 @@ fn to_pascal_case(s: &str) -> String {
 /// ActivityBarStyle::vars(|v| v.icon_opacity("1").icon_color("red"))
 /// // → "--ab-icon-opacity: 1; --ab-icon-color: red"
 /// ```
-fn gen_overrides(
-    struct_name: &syn::Ident,
-    base_name: &str,
-    fields: &[ParsedField],
-) -> TokenStream {
+fn gen_overrides(struct_name: &syn::Ident, base_name: &str, fields: &[ParsedField]) -> TokenStream {
     // Collect variable fields only
     let var_fields: Vec<(&syn::Ident, String)> = fields
         .iter()
@@ -556,33 +570,45 @@ fn gen_overrides(
     let overrides_name = format_ident!("{}Overrides", base_name);
 
     // Struct fields: Option<String> per variable
-    let struct_fields: Vec<TokenStream> = var_fields.iter().map(|(ident, _)| {
-        quote! { #ident: Option<String> }
-    }).collect();
+    let struct_fields: Vec<TokenStream> = var_fields
+        .iter()
+        .map(|(ident, _)| {
+            quote! { #ident: Option<String> }
+        })
+        .collect();
 
     // Builder setter methods
-    let setter_methods: Vec<TokenStream> = var_fields.iter().map(|(ident, _)| {
-        quote! {
-            pub fn #ident(mut self, value: impl Into<String>) -> Self {
-                self.#ident = Some(value.into());
-                self
+    let setter_methods: Vec<TokenStream> = var_fields
+        .iter()
+        .map(|(ident, _)| {
+            quote! {
+                pub fn #ident(mut self, value: impl Into<String>) -> Self {
+                    self.#ident = Some(value.into());
+                    self
+                }
             }
-        }
-    }).collect();
+        })
+        .collect();
 
     // Build method — produces the inline style string
-    let build_parts: Vec<TokenStream> = var_fields.iter().map(|(ident, var_name)| {
-        quote! {
-            if let Some(ref val) = self.#ident {
-                parts.push(format!("{}: {}", #var_name, val));
+    let build_parts: Vec<TokenStream> = var_fields
+        .iter()
+        .map(|(ident, var_name)| {
+            quote! {
+                if let Some(ref val) = self.#ident {
+                    parts.push(format!("{}: {}", #var_name, val));
+                }
             }
-        }
-    }).collect();
+        })
+        .collect();
 
     // Default field initializers (all None)
-    let default_fields: Vec<TokenStream> = var_fields.iter().map(|(ident, _)| {
-        quote! { #ident: None }
-    }).collect();
+    let default_fields: Vec<TokenStream> = var_fields
+        .iter()
+        .map(|(ident, _)| {
+            quote! { #ident: None }
+        })
+        .collect();
 
     quote! {
         /// Per-instance CSS variable overrides. Use `build()` to get an inline
@@ -665,15 +691,14 @@ fn gen_default_impl(
                             theme_field,
                             format!(
                                 "unknown theme field `{}`; `{}` has fields: {}",
-                                field_str, theme_name, available.join(", "),
+                                field_str,
+                                theme_name,
+                                available.join(", "),
                             ),
                         ));
                     }
                 }
-                let const_name = format_ident!(
-                    "VAR_{}",
-                    theme_field.to_string().to_uppercase()
-                );
+                let const_name = format_ident!("VAR_{}", theme_field.to_string().to_uppercase());
                 quote! {
                     format!("var({})", #theme_path::#const_name).into()
                 }
@@ -686,9 +711,12 @@ fn gen_default_impl(
         field_defaults.push((&field.ident, value_expr));
     }
 
-    let field_inits: Vec<TokenStream> = field_defaults.iter().map(|(ident, expr)| {
-        quote! { #ident: #expr }
-    }).collect();
+    let field_inits: Vec<TokenStream> = field_defaults
+        .iter()
+        .map(|(ident, expr)| {
+            quote! { #ident: #expr }
+        })
+        .collect();
 
     Ok(quote! {
         impl Default for #struct_name {

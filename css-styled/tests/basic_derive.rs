@@ -1,4 +1,4 @@
-use css_styled::{StyledComponent, IntoCss, StyledComponentBase};
+use css_styled::{IntoCss, StyledComponent, StyledComponentBase};
 
 #[derive(StyledComponent, Clone)]
 #[component(scope = "test-widget")]
@@ -56,7 +56,8 @@ fn class_with_one_modifier() {
 
 #[test]
 fn class_with_multiple_modifiers() {
-    let result = TestWidgetStyle::class(&[TestWidgetModifier::Active, TestWidgetModifier::Disabled]);
+    let result =
+        TestWidgetStyle::class(&[TestWidgetModifier::Active, TestWidgetModifier::Disabled]);
     assert_eq!(result, "test-widget active disabled");
 }
 
@@ -65,8 +66,14 @@ fn to_css_output() {
     let style = TestWidgetStyle::default();
     let css = style.to_css();
     assert!(css.contains(".test-widget { width: 100px; }"), "got: {css}");
-    assert!(css.contains(".test-widget .test-widget-inner { background: #fff; }"), "got: {css}");
-    assert!(css.contains(".test-widget:hover .test-widget-inner { color: red; }"), "got: {css}");
+    assert!(
+        css.contains(".test-widget .test-widget-inner { background: #fff; }"),
+        "got: {css}"
+    );
+    assert!(
+        css.contains(".test-widget:hover .test-widget-inner { color: red; }"),
+        "got: {css}"
+    );
 }
 
 #[test]

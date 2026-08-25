@@ -2,12 +2,12 @@ use proc_macro::TokenStream;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
-mod parse_attrs;
-mod fuzzy;
+mod css_macro;
+mod derive_css_vars;
 mod derive_styled;
 mod derive_theme;
-mod derive_css_vars;
-mod css_macro;
+mod fuzzy;
+mod parse_attrs;
 
 /// Registry of CSS variable names declared by each struct.
 /// Populated by StyledComponent and Theme derives, read by the css! macro.

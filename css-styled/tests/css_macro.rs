@@ -1,4 +1,4 @@
-use css_styled::{StyledComponent, IntoCss, StyledComponentBase, css};
+use css_styled::{css, IntoCss, StyledComponent, StyledComponentBase};
 
 #[derive(StyledComponent, Clone)]
 #[component(scope = "widget")]
@@ -12,7 +12,9 @@ struct WidgetStyle {
 
 impl Default for WidgetStyle {
     fn default() -> Self {
-        Self { text_color: "black".into() }
+        Self {
+            text_color: "black".into(),
+        }
     }
 }
 

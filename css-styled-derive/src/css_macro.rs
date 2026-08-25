@@ -1,4 +1,4 @@
-use proc_macro2::{Span, TokenStream, TokenTree, Delimiter};
+use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
 use quote::quote;
 use syn::parse::{Parse, ParseStream};
 use syn::{braced, Error, Ident, Result, Token};
@@ -44,15 +44,13 @@ struct VarRef {
 
 /// Walk the token stream, find UPPERCASE idents and var() references.
 /// Returns: (css_string_with_placeholders, name_refs, var_refs)
-fn process_tokens(
-    tokens: proc_macro2::TokenStream,
-) -> (String, Vec<NameRef>, Vec<VarRef>) {
+fn process_tokens(tokens: proc_macro2::TokenStream) -> (String, Vec<NameRef>, Vec<VarRef>) {
     let mut css = String::new();
     let mut name_refs: Vec<NameRef> = Vec::new();
     let mut var_refs: Vec<VarRef> = Vec::new();
     let token_vec: Vec<TokenTree> = tokens.into_iter().collect();
 
-    process_token_list(&token_vec, &mut css, &mut name_refs, &mut var_refs, false);
+    process_token_list(&token_vec, &mut css, &mut name_refs, &mut var_refs);
 
     (css, name_refs, var_refs)
 }
@@ -62,7 +60,6 @@ fn process_token_list(
     css: &mut String,
     name_refs: &mut Vec<NameRef>,
     var_refs: &mut Vec<VarRef>,
-    inside_var: bool,
 ) {
     let mut i = 0;
     while i < tokens.len() {
@@ -84,7 +81,7 @@ fn process_token_list(
                     // Inside var() — look for --name pattern
                     process_var_args(&inner, css, var_refs);
                 } else {
-                    process_token_list(&inner, css, name_refs, var_refs, inside_var);
+                    process_token_list(&inner, css, name_refs, var_refs);
                 }
                 css.push_str(close);
             }
@@ -154,11 +151,7 @@ fn process_token_list(
                         // Hyphen: could be part of a hyphenated ident or a negative number
                         // Don't add space if previous char is a letter (hyphenated ident)
                         // or if at start / after space (negative value)
-                        if css.ends_with(|c: char| c.is_alphanumeric() || c == '-') {
-                            css.push('-');
-                        } else {
-                            css.push('-');
-                        }
+                        css.push('-');
                     }
                     '#' => {
                         // Hash for colors: #fff
@@ -194,11 +187,7 @@ fn process_token_list(
 }
 
 /// Process tokens inside a var() call, extracting the --name reference.
-fn process_var_args(
-    tokens: &[TokenTree],
-    css: &mut String,
-    var_refs: &mut Vec<VarRef>,
-) {
+fn process_var_args(tokens: &[TokenTree], css: &mut String, var_refs: &mut Vec<VarRef>) {
     // Look for --name pattern: '-' '-' ident ('-' ident)*
     let mut i = 0;
     let mut first = true;
@@ -291,7 +280,14 @@ fn needs_space_before(css: &str, next: &str) -> bool {
     }
 
     // Never add space before these — they attach to the previous token
-    if first_next == ')' || first_next == ']' || first_next == '.' || first_next == ';' || first_next == ',' || first_next == '%' || first_next == ':' {
+    if first_next == ')'
+        || first_next == ']'
+        || first_next == '.'
+        || first_next == ';'
+        || first_next == ','
+        || first_next == '%'
+        || first_next == ':'
+    {
         return false;
     }
 
@@ -334,7 +330,7 @@ pub fn expand(input: CssMacroInput) -> Result<TokenStream> {
 
     // Build the runtime format string: replace each placeholder with {}
     // and track which struct constant each slot maps to
-    let mut format_string = formatted_css;
+    let format_string = formatted_css;
     let mut format_args: Vec<TokenStream> = Vec::new();
 
     // Deduplicate name refs — same name gets same constant but may appear multiple times
@@ -397,21 +393,19 @@ pub fn expand(input: CssMacroInput) -> Result<TokenStream> {
 /// Validate CSS with lightningcss and return the re-formatted output.
 /// This normalizes spacing and catches any syntax errors.
 fn validate_and_format_css(css: &str, span: Span) -> Result<String> {
-    use lightningcss::stylesheet::{ParserOptions, ParserFlags, StyleSheet, PrinterOptions};
-    use lightningcss::printer::PrinterOptions as _;
+    use lightningcss::stylesheet::{ParserFlags, ParserOptions, PrinterOptions, StyleSheet};
 
     let opts = ParserOptions {
         flags: ParserFlags::NESTING,
         ..Default::default()
     };
 
-    let stylesheet = StyleSheet::parse(css, opts).map_err(|err| {
-        Error::new(span, format!("CSS syntax error: {}", err.kind))
-    })?;
+    let stylesheet = StyleSheet::parse(css, opts)
+        .map_err(|err| Error::new(span, format!("CSS syntax error: {}", err.kind)))?;
 
-    let printed = stylesheet.to_css(PrinterOptions::default()).map_err(|err| {
-        Error::new(span, format!("CSS printing error: {}", err))
-    })?;
+    let printed = stylesheet
+        .to_css(PrinterOptions::default())
+        .map_err(|err| Error::new(span, format!("CSS printing error: {}", err)))?;
 
     Ok(printed.code)
 }

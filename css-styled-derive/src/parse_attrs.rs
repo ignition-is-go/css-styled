@@ -1,5 +1,5 @@
 use proc_macro2::Span;
-use syn::{DeriveInput, Error, Ident, LitStr, Result, Field};
+use syn::{DeriveInput, Error, Field, Ident, LitStr, Result};
 
 /// Parsed struct-level configuration from `#[component(...)]` attributes.
 #[derive(Debug, Default)]
@@ -208,7 +208,10 @@ pub fn parse_prop_config(field: &Field) -> Result<Option<PropConfig>> {
                     "CSS custom property name must start with `--`",
                 ));
             }
-            return Ok(Some(PropConfig::Variable { var: var_lit, default: prop_default }));
+            return Ok(Some(PropConfig::Variable {
+                var: var_lit,
+                default: prop_default,
+            }));
         }
 
         if css.is_none() {
@@ -218,7 +221,12 @@ pub fn parse_prop_config(field: &Field) -> Result<Option<PropConfig>> {
             ));
         }
 
-        return Ok(Some(PropConfig::Mapped { css: css.unwrap(), on, pseudo, default: prop_default }));
+        return Ok(Some(PropConfig::Mapped {
+            css: css.unwrap(),
+            on,
+            pseudo,
+            default: prop_default,
+        }));
     }
 
     Ok(None)
