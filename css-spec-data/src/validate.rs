@@ -267,8 +267,7 @@ fn classify_value(value: &str) -> ValueType {
     }
 
     // Hex color: starts with '#', rest are hex digits, length 4..=9
-    if value.starts_with('#') {
-        let rest = &value[1..];
+    if let Some(rest) = value.strip_prefix('#') {
         if !rest.is_empty() && rest.len() <= 8 && rest.chars().all(|c| c.is_ascii_hexdigit()) {
             return ValueType::Color;
         }
@@ -386,14 +385,13 @@ pub fn validate_value(property: &str, value: &str) -> ValidationResult {
                 ));
             }
         }
-        ValueType::Percentage => {
-            // Percentage on a color-only property → Warn
-            if syntax_is_color_only(syntax) && !syntax_accepts_percentage(syntax) {
-                return ValidationResult::Warn(format!(
-                    "percentage value '{}' is not expected for property '{}' (syntax: {})",
-                    trimmed, property, syntax
-                ));
-            }
+        ValueType::Percentage
+            if syntax_is_color_only(syntax) && !syntax_accepts_percentage(syntax) =>
+        {
+            return ValidationResult::Warn(format!(
+                "percentage value '{}' is not expected for property '{}' (syntax: {})",
+                trimmed, property, syntax
+            ));
         }
         // Keywords, Numbers, Functions, Compound: too hard to validate precisely
         _ => {}

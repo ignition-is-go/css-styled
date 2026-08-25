@@ -50,7 +50,7 @@ fn process_tokens(tokens: proc_macro2::TokenStream) -> (String, Vec<NameRef>, Ve
     let mut var_refs: Vec<VarRef> = Vec::new();
     let token_vec: Vec<TokenTree> = tokens.into_iter().collect();
 
-    process_token_list(&token_vec, &mut css, &mut name_refs, &mut var_refs, false);
+    process_token_list(&token_vec, &mut css, &mut name_refs, &mut var_refs);
 
     (css, name_refs, var_refs)
 }
@@ -60,7 +60,6 @@ fn process_token_list(
     css: &mut String,
     name_refs: &mut Vec<NameRef>,
     var_refs: &mut Vec<VarRef>,
-    inside_var: bool,
 ) {
     let mut i = 0;
     while i < tokens.len() {
@@ -82,7 +81,7 @@ fn process_token_list(
                     // Inside var() — look for --name pattern
                     process_var_args(&inner, css, var_refs);
                 } else {
-                    process_token_list(&inner, css, name_refs, var_refs, inside_var);
+                    process_token_list(&inner, css, name_refs, var_refs);
                 }
                 css.push_str(close);
             }
@@ -152,11 +151,7 @@ fn process_token_list(
                         // Hyphen: could be part of a hyphenated ident or a negative number
                         // Don't add space if previous char is a letter (hyphenated ident)
                         // or if at start / after space (negative value)
-                        if css.ends_with(|c: char| c.is_alphanumeric() || c == '-') {
-                            css.push('-');
-                        } else {
-                            css.push('-');
-                        }
+                        css.push('-');
                     }
                     '#' => {
                         // Hash for colors: #fff
@@ -335,7 +330,7 @@ pub fn expand(input: CssMacroInput) -> Result<TokenStream> {
 
     // Build the runtime format string: replace each placeholder with {}
     // and track which struct constant each slot maps to
-    let mut format_string = formatted_css;
+    let format_string = formatted_css;
     let mut format_args: Vec<TokenStream> = Vec::new();
 
     // Deduplicate name refs — same name gets same constant but may appear multiple times
@@ -398,7 +393,6 @@ pub fn expand(input: CssMacroInput) -> Result<TokenStream> {
 /// Validate CSS with lightningcss and return the re-formatted output.
 /// This normalizes spacing and catches any syntax errors.
 fn validate_and_format_css(css: &str, span: Span) -> Result<String> {
-    use lightningcss::printer::PrinterOptions as _;
     use lightningcss::stylesheet::{ParserFlags, ParserOptions, PrinterOptions, StyleSheet};
 
     let opts = ParserOptions {

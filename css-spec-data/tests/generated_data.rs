@@ -1,5 +1,3 @@
-use css_spec_data;
-
 #[test]
 fn has_width_property() {
     let prop = css_spec_data::property("width");
